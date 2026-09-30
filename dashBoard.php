@@ -1,0 +1,286 @@
+<?php
+// ---------- Voorbeeldwaarden (later vervangen door echte sensordata) ----------
+$huidigeTemp = 21.5;
+$huidigeCo2  = 480;
+$batterij    = 92;          // %
+$verbinding  = "Online";
+$tempReeks   = [20.6, 20.8, 21.0, 20.9, 21.2, 21.1, 21.4, 21.3, 21.5, 21.4, 21.6, 21.5];
+$co2Reeks    = [420, 430, 445, 440, 460, 470, 455, 465, 480, 475, 490, 480];
+// Test de rook-weergave met dashBoard.php?demo=rook
+$rookGedetecteerd = (($_GET['demo'] ?? '') === 'rook');
+
+// ---------- Bediening: toestand bewaren in melder_status.json ----------
+$bestand = __DIR__ . '/melder_status.json';
+$staat = ['muziek' => false, 'melder' => true];
+if (is_file($bestand)) {
+    $opgeslagen = json_decode(file_get_contents($bestand), true);
+    if (is_array($opgeslagen)) { $staat = array_merge($staat, $opgeslagen); }
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    switch ($_POST['actie'] ?? '') {
+        case 'muziek_aan': if ($staat['melder']) { $staat['muziek'] = true; } break;
+        case 'muziek_uit': $staat['muziek'] = false; break;
+        case 'melder_uit': $staat['melder'] = false; $staat['muziek'] = false; break;
+        case 'melder_aan': $staat['melder'] = true; break;
+    }
+    file_put_contents($bestand, json_encode($staat), LOCK_EX);
+    header('Location: dashBoard.php');
+    exit;
+}
+
+// ---------- Status bepalen ----------
+if (!$staat['melder'])      { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';  $titel = 'Melder uitgeschakeld'; $sub = 'De rookmelder detecteert momenteel niets.'; }
+elseif ($rookGedetecteerd)  { $niveau = 'alarm'; $systeemStatus = 'Rook gedetecteerd'; $titel = 'Rook gedetecteerd!'; $sub = 'Er is rook gedetecteerd in de kamer.'; }
+else                        { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig'; $titel = 'Alles in orde'; $sub = 'Er is geen rook gedetecteerd.'; }
+
+$meldingen = [
+    ['Muziekalarm gestopt', '08:12 - Gisteren', 'info'],
+    ['Melder ingeschakeld', '19:30 - Gisteren', 'ok'],
+    ['Batterij gecontroleerd (' . $batterij . '%)', '09:00 - Gisteren', 'info'],
+];
+if ($rookGedetecteerd && $staat['melder']) { array_unshift($meldingen, ['Rook gedetecteerd', date('H:i') . ' - Vandaag', 'alarm']); }
+
+function ico(string $n, string $extra = ''): string {
+    $p = [
+        'flame' => '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+        'shield' => '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+        'battery' => '<rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/><path d="M6 11v2M10 11v2"/>',
+        'wifi' => '<path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/>',
+        'therm' => '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
+        'wind' => '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2"/>',
+        'power' => '<path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.77.04"/>',
+        'play' => '<polygon points="6 3 20 12 6 21 6 3"/>',
+        'stop' => '<rect x="5" y="5" width="14" height="14" rx="2"/>',
+        'music' => '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+        'bell' => '<path d="M10.27 21a2 2 0 0 0 3.46 0M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8a6 6 0 0 0-12 0c0 4.5-1.41 5.96-2.74 7.33"/>',
+        'alert' => '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01"/>',
+        'chev' => '<path d="m9 18 6-6-6-6"/>',
+    ];
+    return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
+}
+
+function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): string {
+    $B = 420; $H = 190; $L = 40; $R = 12; $T = 14; $Bo = 26;
+    $min = floor(min($w) - (max($w) - min($w)) * .3); $max = ceil(max($w) + (max($w) - min($w)) * .3);
+    if ($max == $min) { $max = $min + 1; }
+    $n = count($w); $xy = [];
+    foreach ($w as $i => $v) {
+        $xy[] = [$L + ($B - $L - $R) * $i / ($n - 1), $T + ($H - $T - $Bo) * (1 - ($v - $min) / ($max - $min))];
+    }
+    $d = 'M' . round($xy[0][0], 1) . ',' . round($xy[0][1], 1);
+    for ($i = 1; $i < $n; $i++) {
+        $cx = ($xy[$i - 1][0] + $xy[$i][0]) / 2;
+        $d .= ' C' . round($cx, 1) . ',' . round($xy[$i - 1][1], 1) . ' ' . round($cx, 1) . ',' . round($xy[$i][1], 1) . ' ' . round($xy[$i][0], 1) . ',' . round($xy[$i][1], 1);
+    }
+    $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
+    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek van de laatste metingen"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
+    for ($k = 0; $k < 4; $k++) {
+        $y = $T + ($H - $T - $Bo) * $k / 3; $val = round($max - ($max - $min) * $k / 3);
+        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
+    }
+    foreach ([0, 3, 6, 9, 11] as $i) {
+        $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . ($i == 11 ? 'nu' : date('H:i', time() - (11 - $i) * 600)) . '</text>';
+    }
+    $lx = round($xy[$n - 1][0], 1); $ly = round($xy[$n - 1][1], 1);
+    return $o . '<path d="' . $vlak . '" fill="url(#g' . $id . ')"/><path d="' . $d . '" fill="none" stroke="' . $kleur . '" stroke-width="3" stroke-linecap="round" class="line" pathLength="1"/>'
+        . '<circle cx="' . $lx . '" cy="' . $ly . '" r="10" fill="' . $kleur . '" opacity=".15"/><circle cx="' . $lx . '" cy="' . $ly . '" r="5" fill="#fff" stroke="' . $kleur . '" stroke-width="3"/></svg>';
+}
+?>
+
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | Brand-Melder</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- BOVENBALK: enkel links naar aparte pagina's (komen later) -->
+    <header class="sticky-header" id="topbar">
+        <a href="index.php" class="logo"><span class="logo-icon">🚨</span>Brand-Melder</a>
+        <nav>
+            <a href="index.php">Home</a>
+            <!-- TODO: vervang deze placeholders door de echte pagina's -->
+            <a href="dashBoard.php" class="active">Dashboard</a>
+            <a href="#">Pagina 3</a>
+        </nav>
+    </header>
+
+    <main class="dash-page">
+
+        <?php if ($niveau === 'alarm') { ?>
+            <div class="alarm-bar"><?php echo ico('alert'); ?><strong>Rook gedetecteerd</strong> in de kamer. Controleer de ruimte en verlaat het gebouw bij brand.</div>
+        <?php } ?>
+
+        <!-- BANNER met foto -->
+        <section class="dash-banner">
+            <div class="dash-banner-inner">
+                <span class="live-pill"><i></i> Live • bijgewerkt om <?php echo date('H:i'); ?></span>
+                <h1>Dashboard</h1>
+                <p>Overzicht en bediening van je Brand-Melder</p>
+            </div>
+        </section>
+
+        <div class="dash-wrap">
+
+            <!-- STATUS + OVERZICHT -->
+            <div class="dash-top">
+                <section class="card status-hero <?php echo $niveau; ?>">
+                    <div class="gauge">
+                        <svg viewBox="0 0 120 120" aria-hidden="true">
+                            <circle cx="60" cy="60" r="52" class="gauge-bg" pathLength="100"/>
+                            <circle cx="60" cy="60" r="52" class="gauge-ring" pathLength="100"/>
+                        </svg>
+                        <span class="gauge-core"><?php echo ico($niveau === 'uit' ? 'power' : 'flame'); ?></span>
+                    </div>
+                    <h2><?php echo $titel; ?></h2>
+                    <p><?php echo $sub; ?></p>
+                    <a href="#grafieken" class="cta-button">Bekijk live gegevens</a>
+                </section>
+
+                <section class="card list-card">
+                    <h3 class="card-title">Systeem</h3>
+                    <div class="row">
+                        <span class="tile <?php echo $niveau; ?>"><?php echo ico('shield'); ?></span>
+                        <div><small>Status</small><strong class="txt-<?php echo $niveau; ?>"><?php echo $systeemStatus; ?></strong></div>
+                        <?php echo ico('chev', 'chev'); ?>
+                    </div>
+                    <div class="row">
+                        <span class="tile"><?php echo ico('battery'); ?></span>
+                        <div><small>Batterij</small><strong><?php echo $batterij; ?>%</strong>
+                            <div class="bar"><i style="width:<?php echo $batterij; ?>%"></i></div></div>
+                        <?php echo ico('chev', 'chev'); ?>
+                    </div>
+                    <div class="row">
+                        <span class="tile"><?php echo ico('wifi'); ?></span>
+                        <div><small>Verbinding</small><strong><i class="online"></i><?php echo $verbinding; ?></strong></div>
+                        <?php echo ico('chev', 'chev'); ?>
+                    </div>
+                </section>
+            </div>
+
+            <!-- METINGEN -->
+            <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste 2 uur</span></div>
+            <div class="chart-grid">
+                <section class="card chart-card">
+                    <div class="chart-head">
+                        <span class="tile"><?php echo ico('therm'); ?></span>
+                        <div><small>Temperatuur</small><strong><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
+                    </div>
+                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't'); ?>
+                </section>
+                <section class="card chart-card">
+                    <div class="chart-head">
+                        <span class="tile blue"><?php echo ico('wind'); ?></span>
+                        <div><small>CO₂-gehalte</small><strong><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
+                    </div>
+                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c'); ?>
+                </section>
+            </div>
+
+            <!-- BEDIENING + MELDINGEN -->
+            <div class="dash-bottom">
+                <section class="card">
+                    <h3 class="card-title">Bediening</h3>
+
+                    <div class="control">
+                        <span class="tile"><?php echo ico('music'); ?></span>
+                        <div><strong>Muziekalarm</strong><small><?php echo $staat['muziek'] ? 'Speelt nu af' : 'Staat uit'; ?></small></div>
+                        <?php if ($staat['muziek']) { ?><span class="eq"><i></i><i></i><i></i><i></i></span><?php } ?>
+                    </div>
+                    <form method="post" class="btn-pair">
+                        <button name="actie" value="muziek_aan" class="ctrl-btn primary" <?php echo (!$staat['melder'] || $staat['muziek']) ? 'disabled' : ''; ?>><?php echo ico('play'); ?>Muziek aan</button>
+                        <button name="actie" value="muziek_uit" class="ctrl-btn" <?php echo !$staat['muziek'] ? 'disabled' : ''; ?>><?php echo ico('stop'); ?>Muziek uit</button>
+                    </form>
+
+                    <div class="divider"></div>
+
+                    <div class="control">
+                        <span class="tile <?php echo $niveau === 'uit' ? 'uit' : ''; ?>"><?php echo ico('power'); ?></span>
+                        <div><strong>Rookmelder</strong><small><?php echo $staat['melder'] ? 'Actief en bewaakt' : 'Uitgeschakeld'; ?></small></div>
+                    </div>
+                    <?php if ($staat['melder']) { ?>
+                        <button type="button" class="ctrl-btn danger wide" id="openBevestiging"><?php echo ico('power'); ?>Rookmelder uitzetten</button>
+                    <?php } else { ?>
+                        <form method="post"><button name="actie" value="melder_aan" class="ctrl-btn success wide"><?php echo ico('power'); ?>Rookmelder aanzetten</button></form>
+                        <p class="control-warning">De rookmelder staat uit en detecteert geen rook.</p>
+                    <?php } ?>
+                </section>
+
+                <section class="card">
+                    <h3 class="card-title">Recente meldingen</h3>
+                    <?php foreach ($meldingen as $m) { ?>
+                        <div class="row note">
+                            <span class="tile sm <?php echo $m[2]; ?>"><?php echo ico($m[2] === 'alarm' ? 'flame' : 'bell'); ?></span>
+                            <div><strong><?php echo htmlspecialchars($m[0]); ?></strong><small><?php echo $m[1]; ?></small></div>
+                        </div>
+                    <?php } ?>
+                </section>
+            </div>
+        </div>
+
+        <!-- Bevestigingsvenster -->
+        <dialog id="bevestiging" class="confirm-box">
+            <span class="tile danger-tile"><?php echo ico('alert'); ?></span>
+            <h3>Rookmelder uitzetten?</h3>
+            <p>Weet je zeker dat je de rookmelder wilt uitzetten? Er wordt dan <strong>geen rook of brand meer gedetecteerd</strong> en er komt geen alarm.</p>
+            <form method="post" class="btn-pair">
+                <button type="button" class="ctrl-btn" id="annuleer">Annuleren</button>
+                <button name="actie" value="melder_uit" class="ctrl-btn danger solid">Ja, uitzetten</button>
+            </form>
+        </dialog>
+    </main>
+
+    <script>
+        const dlg = document.getElementById('bevestiging');
+        const open = document.getElementById('openBevestiging');
+        if (open) open.addEventListener('click', () => dlg.showModal());
+        document.getElementById('annuleer').addEventListener('click', () => dlg.close());
+    </script>
+
+    <footer class="footer">
+        <div>
+            <strong>🚨 Brand-Melder</strong>
+            <p>Een slim IoT-project rond brandveiligheid.</p>
+        </div>
+        <div class="footer-links">
+            <a href="#home">Home</a>
+            <a href="#over">Over het project</a>
+            <a href="#functionaliteiten">Functies</a>
+            <a href="dashBoard.php">Dashboard</a>
+        </div>
+        <p class="copyright">© <?php echo date("Y"); ?> Brand-Melder</p>
+    </footer>
+
+    <script>
+// Bovenbalk wordt compacter bij scrollen
+const topbar = document.getElementById('topbar');
+addEventListener('scroll', () => topbar.classList.toggle('scrolled', scrollY > 30), {passive:true});
+
+// Zijnavigatie: actieve sectie markeren
+const sideLinks = document.querySelectorAll('.side-nav a');
+if (sideLinks.length) {
+    const io = new IntersectionObserver(es => es.forEach(e => {
+        if (e.isIntersecting) sideLinks.forEach(a =>
+            a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
+    }), {rootMargin: '-45% 0px -50% 0px'});
+    sideLinks.forEach(a => { const s = document.querySelector(a.getAttribute('href')); if (s) io.observe(s); });
+}
+
+// Stappen: actieve stap oplichten tijdens het scrollen
+const stappen = document.querySelectorAll('.scroll-step');
+if (stappen.length) {
+    const io2 = new IntersectionObserver(es => es.forEach(e => {
+        if (!e.isIntersecting) return;
+        const n = e.target.dataset.step;
+        stappen.forEach(s => s.classList.toggle('active', s.dataset.step === n));
+        document.querySelectorAll('.step-tracker li').forEach(li =>
+            li.classList.toggle('active', li.dataset.step === n));
+    }), {rootMargin: '-40% 0px -40% 0px'});
+    stappen.forEach(s => io2.observe(s));
+}
+</script>
+</body>
+</html>
