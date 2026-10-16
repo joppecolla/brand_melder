@@ -102,9 +102,8 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
         <a href="index.php" class="logo"><span class="logo-icon">🚨</span>Brand-Melder</a>
         <nav>
             <a href="index.php">Home</a>
-            <!-- TODO: vervang deze placeholders door de echte pagina's -->
             <a href="dashBoard.php" class="active">Dashboard</a>
-            <a href="#">Pagina 3</a>
+            <a href="admin.php">Pagina 3</a>
         </nav>
     </header>
 
