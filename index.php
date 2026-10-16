@@ -1,285 +1,331 @@
-<?php
-// ---------- 1. Verbinding maken met Neon (PostgreSQL) ----------
-$host = 'ep-odd-cloud-ba9zj1ve-pooler.c-8.eu-central-1.aws.neon.tech'; 
-$db   = 'neondb';
-$user = 'neondb_owner';
-$pass = 'npg_fC6zBKTtVY8s';
-$port = '5432';
-
-try {
-    $dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=require";
-    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-} catch (\PDOException $e) {
-    die("Databaseverbinding mislukt: " . $e->getMessage());
-}
-
-// ---------- 2. Echte sensordata ophalen uit de database ----------
-// We halen de meest recente meting op voor de hoofdtellers en status
-$stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data ORDER BY created_at DESC LIMIT 1");
-$laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if ($laatsteData) {
-    $huidigeTemp = (float)$laatsteData['temperatuur'];
-    $huidigeCo2  = (int)$laatsteData['co2'];
-    $batterij    = (int)$laatsteData['batterij'];
-    $verbinding  = "Online";
-    $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
-} else {
-    // Fallback als er nog geen data in de tabel zit
-    $huidigeTemp = 0.0;
-    $huidigeCo2  = 0;
-    $batterij    = 0;
-    $verbinding  = "Geen data";
-    $laatsteUpdate = date('H:i');
-}
-
-// Haal de laatste 12 metingen op voor de historische grafieken
-$stmtReeks = $pdo->query("SELECT temperatuur, co2 FROM sensor_data ORDER BY created_at DESC LIMIT 12");
-$historie = array_reverse($stmtReeks->fetchAll(PDO::FETCH_ASSOC));
-
-if (count($historie) > 0) {
-    $tempReeks = array_column($historie, 'temperatuur');
-    $co2Reeks  = array_column($historie, 'co2');
-} else {
-    // Standaard lege reeks als er geen data is om fouten te voorkomen
-    $tempReeks = [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20];
-    $co2Reeks  = [400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400];
-}
-
-// Test de rook-weergave met dashBoard.php?demo=rook
-$rookGedetecteerd = (($_GET['demo'] ?? '') === 'rook');
-
-// ---------- 3. Bediening: toestand bewaren in melder_status.json ----------
-$bestand = __DIR__ . '/melder_status.json';
-$staat = ['muziek' => false, 'melder' => true];
-if (is_file($bestand)) {
-    $opgeslagen = json_decode(file_get_contents($bestand), true);
-    if (is_array($opgeslagen)) { $staat = array_merge($staat, $opgeslagen); }
-}
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    switch ($_POST['actie'] ?? '') {
-        case 'muziek_aan': if ($staat['melder']) { $staat['muziek'] = true; } break;
-        case 'muziek_uit': $staat['muziek'] = false; break;
-        case 'melder_uit': $staat['melder'] = false; $staat['muziek'] = false; break;
-        case 'melder_aan': $staat['melder'] = true; break;
-    }
-    file_put_contents($bestand, json_encode($staat), LOCK_EX);
-    header('Location: dashBoard.php');
-    exit;
-}
-
-// ---------- 4. Status bepalen ----------
-if (!$staat['melder'])      { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';  $titel = 'Melder uitgeschakeld'; $sub = 'De rookmelder detecteert momenteel niets.'; }
-elseif ($rookGedetecteerd)  { $niveau = 'alarm'; $systeemStatus = 'Rook gedetecteerd'; $titel = 'Rook gedetecteerd!'; $sub = 'Er is rook gedetecteerd in de kamer.'; }
-else                        { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig'; $titel = 'Alles in orde'; $sub = 'Er is geen rook gedetecteerd.'; }
-
-$meldingen = [
-    ['Muziekalarm gestopt', '08:12 - Gisteren', 'info'],
-    ['Melder ingeschakeld', '19:30 - Gisteren', 'ok'],
-    ['Batterij gecontroleerd (' . $batterij . '%)', '09:00 - Gisteren', 'info'],
-];
-if ($rookGedetecteerd && $staat['melder']) { array_unshift($meldingen, ['Rook gedetecteerd', date('H:i') . ' - Vandaag', 'alarm']); }
-
-function ico(string $n, string $extra = ''): string {
-    $p = [
-        'flame' => '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
-        'shield' => '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
-        'battery' => '<rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/><path d="M6 11v2M10 11v2"/>',
-        'wifi' => '<path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/>',
-        'therm' => '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
-        'wind' => '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2"/>',
-        'power' => '<path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.77.04"/>',
-        'play' => '<polygon points="6 3 20 12 6 21 6 3"/>',
-        'stop' => '<rect x="5" y="5" width="14" height="14" rx="2"/>',
-        'music' => '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
-        'bell' => '<path d="M10.27 21a2 2 0 0 0 3.46 0M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8a6 6 0 0 0-12 0c0 4.5-1.41 5.96-2.74 7.33"/>',
-        'alert' => '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01"/>',
-        'chev' => '<path d="m9 18 6-6-6-6"/>',
-    ];
-    return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
-}
-
-function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): string {
-    $B = 420; $H = 190; $L = 40; $R = 12; $T = 14; $Bo = 26;
-    $min = floor(min($w) - (max($w) - min($w)) * .3); $max = ceil(max($w) + (max($w) - min($w)) * .3);
-    if ($max == $min) { $max = $min + 1; }
-    $n = count($w); $xy = [];
-    foreach ($w as $i => $v) {
-        $xy[] = [$L + ($B - $L - $R) * $i / ($n - 1), $T + ($H - $T - $Bo) * (1 - ($v - $min) / ($max - $min))];
-    }
-    $d = 'M' . round($xy[0][0], 1) . ',' . round($xy[0][1], 1);
-    for ($i = 1; $i < $n; $i++) {
-        $cx = ($xy[$i - 1][0] + $xy[$i][0]) / 2;
-        $d .= ' C' . round($cx, 1) . ',' . round($xy[$i - 1][1], 1) . ' ' . round($cx, 1) . ',' . round($xy[$i][1], 1) . ' ' . round($xy[$i][0], 1) . ',' . round($xy[$i][1], 1);
-    }
-    $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
-    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek van de laatste metingen"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
-    for ($k = 0; $k < 4; $k++) {
-        $y = $T + ($H - $T - $Bo) * $k / 3; $val = round($max - ($max - $min) * $k / 3);
-        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
-    }
-    foreach ([0, 3, 6, 9, 11] as $i) {
-        $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . ($i == 11 ? 'nu' : date('H:i', time() - (11 - $i) * 600)) . '</text>';
-    }
-    $lx = round($xy[$n - 1][0], 1); $ly = round($xy[$n - 1][1], 1);
-    return $o . '<path d="' . $vlak . '" fill="url(#g' . $id . ')"/><path d="' . $d . '" fill="none" stroke="' . $kleur . '" stroke-width="3" stroke-linecap="round" class="line" pathLength="1"/>'
-        . '<circle cx="' . $lx . '" cy="' . $ly . '" r="10" fill="' . $kleur . '" opacity=".15"/><circle cx="' . $lx . '" cy="' . $ly . '" r="5" fill="#fff" stroke="' . $kleur . '" stroke-width="3"/></svg>';
-}
-?>
-
 <!DOCTYPE html>
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard | Brand-Melder</title>
+    <title>Brand-Melder | Slimme brandveiligheid</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- BOVENBALK: enkel links naar aparte pagina's -->
+    <!-- BOVENBALK: enkel links naar aparte pagina's (komen later) -->
     <header class="sticky-header" id="topbar">
         <a href="index.php" class="logo"><span class="logo-icon">🚨</span>Brand-Melder</a>
         <nav>
-            <a href="index.php">Home</a>
-            <a href="dashBoard.php" class="active">Dashboard</a>
+            <a href="index.php" class="active">Home</a>
+            <!-- TODO: vervang deze placeholders door de echte pagina's -->
+            <a href="dashBoard.php">Dashboard</a>
             <a href="admin.php">Admin</a>
         </nav>
     </header>
 
-    <main class="dash-page">
+    <!-- ZIJNAVIGATIE (links): secties op deze pagina -->
+    <aside class="side-nav" aria-label="Secties op deze pagina">
+        <a href="#home" class="active"><span>Home</span></a>
+        <a href="#over"><span>Over het project</span></a>
+        <a href="#functionaliteiten"><span>Functies</span></a>
+        <a href="#werking"><span>Werking</span></a>
+        <a href="#doelgroep"><span>Voor wie?</span></a>
+    </aside>
 
-        <?php if ($niveau === 'alarm') { ?>
-            <div class="alarm-bar"><?php echo ico('alert'); ?><strong>Rook gedetecteerd</strong> in de kamer. Controleer de ruimte en verlaat het gebouw bij brand.</div>
-        <?php } ?>
 
-        <!-- BANNER met foto -->
-        <section class="dash-banner">
-            <div class="dash-banner-inner">
-                <span class="live-pill"><i></i> Live • bijgewerkt om <?php echo $laatsteUpdate; ?></span>
-                <h1>Dashboard</h1>
-                <p>Overzicht en bediening van je Brand-Melder</p>
+    <!-- =========================
+         HERO
+    ========================== -->
+    <main>
+
+        <section id="home" class="hero-section">
+            <div class="hero-overlay"></div>
+
+            <div class="hero-content">
+                <div class="eyebrow">
+                    <span></span> Slimme brandveiligheid
+                </div>
+
+                <h1>
+                    Maximale veiligheid,<br>
+                    <strong>met een glimlach.</strong>
+                </h1>
+
+                <p>
+                    De Brand-Melder combineert sensoren, IoT en een eigen
+                    webinterface in één slim systeem. Geen gewone piep,
+                    maar duidelijke meldingen, live gegevens en een
+                    ludieke alarmmelding.
+                </p>
+
+                <div class="hero-buttons">
+                    <a href="dashBoard.php" class="cta-button">
+                        Bekijk Live Gegevens
+                    </a>
+
+                    <a href="#functionaliteiten" class="secondary-button">
+                        Ontdek de functies
+                    </a>
+                </div>
             </div>
         </section>
 
-        <div class="dash-wrap">
 
-            <!-- STATUS + OVERZICHT -->
-            <div class="dash-top">
-                <section class="card status-hero <?php echo $niveau; ?>">
-                    <div class="gauge">
-                        <svg viewBox="0 0 120 120" aria-hidden="true">
-                            <circle cx="60" cy="60" r="52" class="gauge-bg" pathLength="100"/>
-                            <circle cx="60" cy="60" r="52" class="gauge-ring" pathLength="100"/>
-                        </svg>
-                        <span class="gauge-core"><?php echo ico($niveau === 'uit' ? 'power' : 'flame'); ?></span>
-                    </div>
-                    <h2><?php echo $titel; ?></h2>
-                    <p><?php echo $sub; ?></p>
-                    <a href="#grafieken" class="cta-button">Bekijk live gegevens</a>
-                </section>
+        <!-- =========================
+             VERSCHUIVENDE BALK
+        ========================== -->
+        <section class="ticker-section" aria-label="Belangrijkste functies">
+            <div class="ticker-track">
+                <div class="ticker-item">🔥 ROOKDETECTIE</div>
+                <div class="ticker-item">🌡️ TEMPERATUUR</div>
+                <div class="ticker-item">💨 CO₂-METING</div>
+                <div class="ticker-item">🔊 STEMMELDINGEN</div>
+                <div class="ticker-item">📧 E-MAILNOTIFICATIES</div>
+                <div class="ticker-item">📱 WEBINTERFACE</div>
+                <div class="ticker-item">📊 LIVE DASHBOARD</div>
 
-                <section class="card list-card">
-                    <h3 class="card-title">Systeem</h3>
-                    <div class="row">
-                        <span class="tile <?php echo $niveau; ?>"><?php echo ico('shield'); ?></span>
-                        <div><small>Status</small><strong class="txt-<?php echo $niveau; ?>"><?php echo $systeemStatus; ?></strong></div>
-                        <?php echo ico('chev', 'chev'); ?>
-                    </div>
-                    <div class="row">
-                        <span class="tile"><?php echo ico('battery'); ?></span>
-                        <div><small>Batterij</small><strong><?php echo $batterij; ?>%</strong>
-                            <div class="bar"><i style="width:<?php echo $batterij; ?>%"></i></div></div>
-                        <?php echo ico('chev', 'chev'); ?>
-                    </div>
-                    <div class="row">
-                        <span class="tile"><?php echo ico('wifi'); ?></span>
-                        <div><small>Verbinding</small><strong><i class="online"></i><?php echo $verbinding; ?></strong></div>
-                        <?php echo ico('chev', 'chev'); ?>
-                    </div>
-                </section>
+                <!-- Herhaling voor een continue animatie -->
+                <div class="ticker-item">🔥 ROOKDETECTIE</div>
+                <div class="ticker-item">🌡️ TEMPERATUUR</div>
+                <div class="ticker-item">💨 CO₂-METING</div>
+                <div class="ticker-item">🔊 STEMMELDINGEN</div>
+                <div class="ticker-item">📧 E-MAILNOTIFICATIES</div>
+                <div class="ticker-item">📱 WEBINTERFACE</div>
+                <div class="ticker-item">📊 LIVE DASHBOARD</div>
+            </div>
+        </section>
+
+
+        <!-- =========================
+             PROJECT INTRO
+        ========================== -->
+        <section id="over" class="section intro-section">
+            <div class="section-heading">
+                <span class="section-label">HET PROJECT</span>
+                <h2>Wat is de <span>Brand-Melder?</span></h2>
             </div>
 
-            <!-- METINGEN -->
-            <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste metingen uit database</span></div>
-            <div class="chart-grid">
-                <section class="card chart-card">
-                    <div class="chart-head">
-                        <span class="tile"><?php echo ico('therm'); ?></span>
-                        <div><small>Temperatuur</small><strong><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
+            <div class="intro-grid">
+                <div class="intro-text">
+                    <p class="lead">
+                        De Brand-Melder is een zelfgemaakt IoT-systeem dat
+                        veiligheid en technologie combineert met een ludieke
+                        twist.
+                    </p>
+
+                    <p>
+                        Het systeem meet onder andere temperatuur en CO₂ en
+                        kan rook/brand detecteren. Wanneer een grenswaarde
+                        wordt overschreden, wordt de gebruiker gewaarschuwd.
+                        In plaats van alleen een klassieke pieptoon kan de
+                        melder een muziekfragment of duidelijke stemmelding
+                        afspelen.
+                    </p>
+
+                    <p>
+                        Via de eigen website krijgt de gebruiker bovendien
+                        inzicht in de actuele meetgegevens en kan het
+                        alarmsignaal op afstand worden beheerd.
+                    </p>
+                </div>
+
+                <div class="problem-card">
+                    <div class="problem-icon">!</div>
+                    <div>
+                        <span class="small-title">HET PROBLEEM</span>
+                        <h3>Een klassieke rookmelder vertelt weinig.</h3>
+                        <p>
+                            Traditionele melders geven vooral een irritante
+                            pieptoon. Ze geven weinig inzicht in temperatuur
+                            of luchtkwaliteit en bieden geen handige remote
+                            controle.
+                        </p>
                     </div>
-                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't'); ?>
-                </section>
-                <section class="card chart-card">
-                    <div class="chart-head">
-                        <span class="tile blue"><?php echo ico('wind'); ?></span>
-                        <div><small>CO₂-gehalte</small><strong><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
-                    </div>
-                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c'); ?>
-                </section>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- =========================
+             FUNCTIES
+        ========================== -->
+        <section id="functionaliteiten" class="section features-section alt-bg">
+
+            <div class="section-heading centered">
+                <span class="section-label">SLIMME TECHNOLOGIE</span>
+                <h2>Meer dan alleen een <span>rookmelder.</span></h2>
+                <p>
+                    Hardware, sensoren en webtechnologie werken samen in één
+                    systeem.
+                </p>
             </div>
 
-            <!-- BEDIENING + MELDINGEN -->
-            <div class="dash-bottom">
-                <section class="card">
-                    <h3 class="card-title">Bediening</h3>
+            <div class="features-grid">
 
-                    <div class="control">
-                        <span class="tile"><?php echo ico('music'); ?></span>
-                        <div><strong>Muziekalarm</strong><small><?php echo $staat['muziek'] ? 'Speelt nu af' : 'Staat uit'; ?></small></div>
-                        <?php if ($staat['muziek']) { ?><span class="eq"><i></i><i></i><i></i><i></i></span><?php } ?>
-                    </div>
-                    <form method="post" class="btn-pair">
-                        <button name="actie" value="muziek_aan" class="ctrl-btn primary" <?php echo (!$staat['melder'] || $staat['muziek']) ? 'disabled' : ''; ?>><?php echo ico('play'); ?>Muziek aan</button>
-                        <button name="actie" value="muziek_uit" class="ctrl-btn" <?php echo !$staat['muziek'] ? 'disabled' : ''; ?>><?php echo ico('stop'); ?>Muziek uit</button>
-                    </form>
+                <article class="feature-card">
+                    <div class="feature-number">01</div>
+                    <div class="feature-icon">🔥</div>
+                    <h3>Rookdetectie</h3>
+                    <p>
+                        Detecteert rook en vormt de basis voor een snelle
+                        alarmmelding.
+                    </p>
+                </article>
 
-                    <div class="divider"></div>
+                <article class="feature-card">
+                    <div class="feature-number">02</div>
+                    <div class="feature-icon">🌡️</div>
+                    <h3>Temperatuurmeting</h3>
+                    <p>
+                        Meet de temperatuur in de ruimte en maakt deze
+                        informatie zichtbaar via de website.
+                    </p>
+                </article>
 
-                    <div class="control">
-                        <span class="tile <?php echo $niveau === 'uit' ? 'uit' : ''; ?>"><?php echo ico('power'); ?></span>
-                        <div><strong>Rookmelder</strong><small><?php echo $staat['melder'] ? 'Actief en bewaakt' : 'Uitgeschakeld'; ?></small></div>
-                    </div>
-                    <?php if ($staat['melder']) { ?>
-                        <button type="button" class="ctrl-btn danger wide" id="openBevestiging"><?php echo ico('power'); ?>Rookmelder uitzetten</button>
-                    <?php } else { ?>
-                        <form method="post"><button name="actie" value="melder_aan" class="ctrl-btn success wide"><?php echo ico('power'); ?>Rookmelder aanzetten</button></form>
-                        <p class="control-warning">De rookmelder staat uit en detecteert geen rook.</p>
-                    <?php } ?>
-                </section>
+                <article class="feature-card">
+                    <div class="feature-number">03</div>
+                    <div class="feature-icon">💨</div>
+                    <h3>CO₂-meting</h3>
+                    <p>
+                        Geeft extra informatie over de luchtkwaliteit en de
+                        omstandigheden in de ruimte.
+                    </p>
+                </article>
 
-                <section class="card">
-                    <h3 class="card-title">Recente meldingen</h3>
-                    <?php foreach ($meldingen as $m) { ?>
-                        <div class="row note">
-                            <span class="tile sm <?php echo $m[2]; ?>"><?php echo ico($m[2] === 'alarm' ? 'flame' : 'bell'); ?></span>
-                            <div><strong><?php echo htmlspecialchars($m[0]); ?></strong><small><?php echo $m[1]; ?></small></div>
-                        </div>
-                    <?php } ?>
-                </section>
+                <article class="feature-card">
+                    <div class="feature-number">04</div>
+                    <div class="feature-icon">🔊</div>
+                    <h3>Ludiek alarm</h3>
+                    <p>
+                        Bij een noodsituatie kan een muziekfragment worden
+                        afgespeeld in plaats van alleen een klassieke piep.
+                    </p>
+                </article>
+
+                <article class="feature-card">
+                    <div class="feature-number">05</div>
+                    <div class="feature-icon">🗣️</div>
+                    <h3>Stemmeldingen</h3>
+                    <p>
+                        Een ingesproken melding kan bijvoorbeeld waarschuwen
+                        wanneer de batterij bijna leeg is.
+                    </p>
+                </article>
+
+                <article class="feature-card">
+                    <div class="feature-number">06</div>
+                    <div class="feature-icon">📧</div>
+                    <h3>E-mailnotificaties</h3>
+                    <p>
+                        Waarschuwingen kunnen automatisch naar de gebruiker
+                        worden verstuurd bij belangrijke gebeurtenissen.
+                    </p>
+                </article>
+
+                <article class="feature-card">
+                    <div class="feature-number">07</div>
+                    <div class="feature-icon">📱</div>
+                    <h3>Webinterface</h3>
+                    <p>
+                        Bekijk live meetgegevens en de status van de melder
+                        via een eigen website.
+                    </p>
+                </article>
+
+                <article class="feature-card">
+                    <div class="feature-number">08</div>
+                    <div class="feature-icon">🎛️</div>
+                    <h3>Controle op afstand</h3>
+                    <p>
+                        Het alarmsignaal kan via de webinterface worden
+                        beheerd, bijvoorbeeld bij een vals alarm.
+                    </p>
+                </article>
+
             </div>
-        </div>
+        </section>
 
-        <!-- Bevestigingsvenster -->
-        <dialog id="bevestiging" class="confirm-box">
-            <span class="tile danger-tile"><?php echo ico('alert'); ?></span>
-            <h3>Rookmelder uitzetten?</h3>
-            <p>Weet je zeker dat je de rookmelder wilt uitzetten? Er wordt dan <strong>geen rook of brand meer gedetecteerd</strong> en er komt geen alarm.</p>
-            <form method="post" class="btn-pair">
-                <button type="button" class="ctrl-btn" id="annuleer">Annuleren</button>
-                <button name="actie" value="melder_uit" class="ctrl-btn danger solid">Ja, uitzetten</button>
-            </form>
-        </dialog>
+
+        <!-- =========================
+             HOE WERKT HET?
+        ========================== -->
+        <section id="werking" class="section working-section">
+            <div class="scroll-steps">
+                <div class="scroll-steps-left">
+                    <span class="section-label">VAN SENSOR TOT WEBSITE</span>
+                    <h2>Hoe werkt het <span>systeem?</span></h2>
+                    <ol class="step-tracker"><li class="active" data-step="1">Meten</li><li data-step="2">Verwerken</li><li data-step="3">Waarschuwen</li><li data-step="4">Bekijken</li></ol>
+                </div>
+                <div class="scroll-steps-right">
+                <article class="scroll-step active" data-step="1">
+                    <div class="big-number">01</div>
+                    <h3>Meten</h3>
+                    <p>Sensoren verzamelen gegevens over rook, temperatuur en CO₂.</p>
+                </article>
+                <article class="scroll-step" data-step="2">
+                    <div class="big-number">02</div>
+                    <h3>Verwerken</h3>
+                    <p>De elektronica verwerkt de meetwaarden en controleert of een alarm nodig is.</p>
+                </article>
+                <article class="scroll-step" data-step="3">
+                    <div class="big-number">03</div>
+                    <h3>Waarschuwen</h3>
+                    <p>De melder geeft een geluid-, muziek- of stemmelding wanneer dat nodig is.</p>
+                </article>
+                <article class="scroll-step" data-step="4">
+                    <div class="big-number">04</div>
+                    <h3>Bekijken</h3>
+                    <p>De website toont de actuele toestand en meetgegevens van het systeem.</p>
+                </article>
+                </div>
+            </div>
+        </section>
+
+<!-- =========================
+             DOELGROEP
+        ========================== -->
+        <section id="doelgroep" class="audience-section">
+            <div class="audience-content">
+                <span class="section-label light">VOOR WIE?</span>
+                <h2>Veiligheid voor <span>slimme ruimtes.</span></h2>
+                <p>
+                    De Brand-Melder is vooral gericht op studentenhuizen,
+                    hobbyruimtes en technische labo's waar veiligheid,
+                    technologie en speelsheid samenkomen.
+                </p>
+
+                <div class="audience-tags">
+                    <span>Studentenhuizen</span>
+                    <span>Hobbyruimtes</span>
+                    <span>Technische labo's</span>
+                    <span>IoT-projecten</span>
+                </div>
+            </div>
+        </section>
+        
+
+
+        <!-- =========================
+             CTA
+        ========================== -->
+        <section class="cta-section">
+            <div>
+                <span class="section-label light">BRAND-MELDER</span>
+                <h2>Veiligheid kan ook <span>leuker.</span></h2>
+                <p>
+                    Een technisch IoT-project dat brandveiligheid,
+                    meetgegevens en een eigen webinterface samenbrengt.
+                </p>
+            </div>
+
+            <a href="dashBoard.php" class="cta-button white-button">
+                Naar het dashboard →
+            </a>
+        </section>
+
     </main>
 
-    <script>
-        const dlg = document.getElementById('bevestiging');
-        const open = document.getElementById('openBevestiging');
-        if (open) open.addEventListener('click', () => dlg.showModal());
-        document.getElementById('annuleer').addEventListener('click', () => dlg.close());
-    </script>
 
-    <footer class="footer">
+    <!-- =========================
+         FOOTER
+    ========================== -->
+        <footer class="footer">
         <div>
             <strong>🚨 Brand-Melder</strong>
             <p>Een slim IoT-project rond brandveiligheid.</p>
