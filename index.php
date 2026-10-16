@@ -14,35 +14,36 @@ try {
 }
 
 // ---------- 2. Echte sensordata ophalen uit de database ----------
-// 1. Haal de meest recente meting op voor de hoofdtellers en status
+// We halen de meest recente meting op voor de hoofdtellers en status
 $stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data ORDER BY created_at DESC LIMIT 1");
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if ($laatsteData) {
-    $huidigeTemp   = (float)$laatsteData['temperatuur'];
-    $huidigeCo2    = (int)$laatsteData['co2'];
-    $batterij      = (int)$laatsteData['batterij'];
-    $verbinding    = "Online";
+    $huidigeTemp = (float)$laatsteData['temperatuur'];
+    $huidigeCo2  = (int)$laatsteData['co2'];
+    $batterij    = (int)$laatsteData['batterij'];
+    $verbinding  = "Online";
     $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
 } else {
-    // Fallback als er nog helemaal geen data in de tabel zit
-    $huidigeTemp   = 0.0;
-    $huidigeCo2    = 0;
-    $batterij      = 0;
-    $verbinding    = "Geen data";
+    // Fallback als er nog geen data in de tabel zit
+    $huidigeTemp = 0.0;
+    $huidigeCo2  = 0;
+    $batterij    = 0;
+    $verbinding  = "Geen data";
     $laatsteUpdate = date('H:i');
 }
 
-// 2. Haal alle recente metingen op voor de historische grafieken
-$stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
-$historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
+// Haal de laatste 12 metingen op voor de historische grafieken
+$stmtReeks = $pdo->query("SELECT temperatuur, co2 FROM sensor_data ORDER BY created_at DESC LIMIT 12");
+$historie = array_reverse($stmtReeks->fetchAll(PDO::FETCH_ASSOC));
 
 if (count($historie) > 0) {
     $tempReeks = array_column($historie, 'temperatuur');
     $co2Reeks  = array_column($historie, 'co2');
 } else {
-    $tempReeks = [];
-    $co2Reeks  = [];
+    // Standaard lege reeks als er geen data is om fouten te voorkomen
+    $tempReeks = [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20];
+    $co2Reeks  = [400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400];
 }
 
 // Test de rook-weergave met dashBoard.php?demo=rook
@@ -99,51 +100,27 @@ function ico(string $n, string $extra = ''): string {
 }
 
 function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): string {
-    $n = count($w);
-    
-    // Als er 0 data is, tonen we een nette melding in plaats van een grafiek
-    if ($n === 0) {
-        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen metingen beschikbaar</div>';
-    }
-
     $B = 420; $H = 190; $L = 40; $R = 12; $T = 14; $Bo = 26;
-    
-    // Als er maar 1 waarde is, voegen we tijdelijk een duplicaat toe voor de berekening
-    if ($n === 1) {
-        $w = [$w[0], $w[0]];
-        $n = 2;
-    }
-
-    $min = floor(min($w) - (max($w) - min($w)) * .3); 
-    $max = ceil(max($w) + (max($w) - min($w)) * .3);
+    $min = floor(min($w) - (max($w) - min($w)) * .3); $max = ceil(max($w) + (max($w) - min($w)) * .3);
     if ($max == $min) { $max = $min + 1; }
-
-    $xy = [];
+    $n = count($w); $xy = [];
     foreach ($w as $i => $v) {
         $xy[] = [$L + ($B - $L - $R) * $i / ($n - 1), $T + ($H - $T - $Bo) * (1 - ($v - $min) / ($max - $min))];
     }
-    
     $d = 'M' . round($xy[0][0], 1) . ',' . round($xy[0][1], 1);
     for ($i = 1; $i < $n; $i++) {
         $cx = ($xy[$i - 1][0] + $xy[$i][0]) / 2;
         $d .= ' C' . round($cx, 1) . ',' . round($xy[$i - 1][1], 1) . ' ' . round($cx, 1) . ',' . round($xy[$i][1], 1) . ' ' . round($xy[$i][0], 1) . ',' . round($xy[$i][1], 1);
     }
-    
     $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
-    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
-    
+    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek van de laatste metingen"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
     for ($k = 0; $k < 4; $k++) {
-        $y = $T + ($H - $T - $Bo) * $k / 3; 
-        $val = round($max - ($max - $min) * $k / 3);
+        $y = $T + ($H - $T - $Bo) * $k / 3; $val = round($max - ($max - $min) * $k / 3);
         $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
     }
-
-    $stapLabel = max(1, floor($n / 4));
-    for ($i = 0; $i < $n; $i += $stapLabel) {
-        $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : 'punt ' . ($i + 1);
-        $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
+    foreach ([0, 3, 6, 9, 11] as $i) {
+        $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . ($i == 11 ? 'nu' : date('H:i', time() - (11 - $i) * 600)) . '</text>';
     }
-
     $lx = round($xy[$n - 1][0], 1); $ly = round($xy[$n - 1][1], 1);
     return $o . '<path d="' . $vlak . '" fill="url(#g' . $id . ')"/><path d="' . $d . '" fill="none" stroke="' . $kleur . '" stroke-width="3" stroke-linecap="round" class="line" pathLength="1"/>'
         . '<circle cx="' . $lx . '" cy="' . $ly . '" r="10" fill="' . $kleur . '" opacity=".15"/><circle cx="' . $lx . '" cy="' . $ly . '" r="5" fill="#fff" stroke="' . $kleur . '" stroke-width="3"/></svg>';
