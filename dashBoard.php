@@ -103,7 +103,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
         <nav>
             <a href="index.php">Home</a>
             <a href="dashBoard.php" class="active">Dashboard</a>
-            <a href="admin.php">admin</a>
+            <a href="admin.php">Admin</a>
         </nav>
     </header>
 
