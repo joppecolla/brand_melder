@@ -14,11 +14,26 @@ try {
 }
 
 // ---------- 2. Echte sensordata ophalen uit de database ----------
-// We halen de meest recente meting op voor de hoofdtellers en status
+// 1. Haal de meest recente meting op voor de hoofdtellers en status
 $stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data ORDER BY created_at DESC LIMIT 1");
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
-// Haal alle recente metingen op (bijv. tot 30 stuks voor een mooi verloop)
+if ($laatsteData) {
+    $huidigeTemp   = (float)$laatsteData['temperatuur'];
+    $huidigeCo2    = (int)$laatsteData['co2'];
+    $batterij      = (int)$laatsteData['batterij'];
+    $verbinding    = "Online";
+    $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
+} else {
+    // Fallback als er nog helemaal geen data in de tabel zit
+    $huidigeTemp   = 0.0;
+    $huidigeCo2    = 0;
+    $batterij      = 0;
+    $verbinding    = "Geen data";
+    $laatsteUpdate = date('H:i');
+}
+
+// 2. Haal alle recente metingen op voor de historische grafieken
 $stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
 $historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
 
@@ -26,14 +41,8 @@ if (count($historie) > 0) {
     $tempReeks = array_column($historie, 'temperatuur');
     $co2Reeks  = array_column($historie, 'co2');
 } else {
-    // Fallback als er nog geen data in de tabel zit
     $tempReeks = [];
     $co2Reeks  = [];
-    $huidigeTemp = 0.0;
-    $huidigeCo2  = 0;
-    $batterij    = 0;
-    $verbinding  = "Geen data";
-    $laatsteUpdate = date('H:i');
 }
 
 // Test de rook-weergave met dashBoard.php?demo=rook
