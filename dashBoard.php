@@ -1,15 +1,56 @@
 <?php
-// ---------- Voorbeeldwaarden (later vervangen door echte sensordata) ----------
-$huidigeTemp = 21.5;
-$huidigeCo2  = 480;
-$batterij    = 92;          // %
-$verbinding  = "Online";
-$tempReeks   = [20.6, 20.8, 21.0, 20.9, 21.2, 21.1, 21.4, 21.3, 21.5, 21.4, 21.6, 21.5];
-$co2Reeks    = [420, 430, 445, 440, 460, 470, 455, 465, 480, 475, 490, 480];
-// Test de rook-weergave met dashBoard.php?demo=rook
+// Verberg eventuele runtime warnings in productie (optioneel, maar houdt het scherm schoon)
+error_reporting(E_ALL & ~E_WARNING & ~E_DEPRECATED);
+
+// ---------- 1. Verbinding maken met Neon (PostgreSQL via Environment Variables) ----------
+$host = getenv('NEON_HOST');
+$db   = getenv('NEON_DB');
+$user = getenv('NEON_USER');
+$pass = getenv('NEON_PASS');
+$port = getenv('NEON_PORT') ?: '5432';
+
+try {
+    $dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=require";
+    $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+} catch (\PDOException $e) {
+    die("Databaseverbinding mislukt: " . $e->getMessage());
+}
+
+// ---------- 2. Echte sensordata ophalen uit de database ----------
+// 1. Haal de meest recente meting op voor de hoofdtellers
+$stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data ORDER BY created_at DESC LIMIT 1");
+$laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if ($laatsteData) {
+    $huidigeTemp   = (float)$laatsteData['temperatuur'];
+    $huidigeCo2    = (int)$laatsteData['co2'];
+    $batterij      = (int)$laatsteData['batterij'];
+    $verbinding    = "Online";
+    $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
+} else {
+    $huidigeTemp   = 0.0;
+    $huidigeCo2    = 0;
+    $batterij      = 0;
+    $verbinding    = "Geen data";
+    $laatsteUpdate = date('H:i');
+}
+
+// 2. Haal alle recente metingen op voor de historische grafieken
+$stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
+$historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
+
+if (count($historie) > 0) {
+    $tempReeks = array_column($historie, 'temperatuur');
+    $co2Reeks  = array_column($historie, 'co2');
+} else {
+    $tempReeks = [];
+    $co2Reeks  = [];
+}
+
+// Test de rook-weergave met index.php?demo=rook
 $rookGedetecteerd = (($_GET['demo'] ?? '') === 'rook');
 
-// ---------- Bediening: toestand bewaren in melder_status.json ----------
+// ---------- 3. Bediening: toestand bewaren in melder_status.json ----------
 $bestand = __DIR__ . '/melder_status.json';
 $staat = ['muziek' => false, 'melder' => true];
 if (is_file($bestand)) {
@@ -24,11 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'melder_aan': $staat['melder'] = true; break;
     }
     file_put_contents($bestand, json_encode($staat), LOCK_EX);
-    header('Location: dashBoard.php');
+    header('Location: index.php');
     exit;
 }
 
-// ---------- Status bepalen ----------
+// ---------- 4. Status bepalen ----------
 if (!$staat['melder'])      { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';  $titel = 'Melder uitgeschakeld'; $sub = 'De rookmelder detecteert momenteel niets.'; }
 elseif ($rookGedetecteerd)  { $niveau = 'alarm'; $systeemStatus = 'Rook gedetecteerd'; $titel = 'Rook gedetecteerd!'; $sub = 'Er is rook gedetecteerd in de kamer.'; }
 else                        { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig'; $titel = 'Alles in orde'; $sub = 'Er is geen rook gedetecteerd.'; }
@@ -60,27 +101,49 @@ function ico(string $n, string $extra = ''): string {
 }
 
 function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): string {
+    $n = count($w);
+    
+    if ($n === 0) {
+        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen metingen beschikbaar</div>';
+    }
+
     $B = 420; $H = 190; $L = 40; $R = 12; $T = 14; $Bo = 26;
-    $min = floor(min($w) - (max($w) - min($w)) * .3); $max = ceil(max($w) + (max($w) - min($w)) * .3);
+    
+    if ($n === 1) {
+        $w = [$w[0], $w[0]];
+        $n = 2;
+    }
+
+    $min = floor(min($w) - (max($w) - min($w)) * .3); 
+    $max = ceil(max($w) + (max($w) - min($w)) * .3);
     if ($max == $min) { $max = $min + 1; }
-    $n = count($w); $xy = [];
+
+    $xy = [];
     foreach ($w as $i => $v) {
         $xy[] = [$L + ($B - $L - $R) * $i / ($n - 1), $T + ($H - $T - $Bo) * (1 - ($v - $min) / ($max - $min))];
     }
+    
     $d = 'M' . round($xy[0][0], 1) . ',' . round($xy[0][1], 1);
     for ($i = 1; $i < $n; $i++) {
         $cx = ($xy[$i - 1][0] + $xy[$i][0]) / 2;
         $d .= ' C' . round($cx, 1) . ',' . round($xy[$i - 1][1], 1) . ' ' . round($cx, 1) . ',' . round($xy[$i][1], 1) . ' ' . round($xy[$i][0], 1) . ',' . round($xy[$i][1], 1);
     }
+    
     $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
-    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek van de laatste metingen"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
+    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
+    
     for ($k = 0; $k < 4; $k++) {
-        $y = $T + ($H - $T - $Bo) * $k / 3; $val = round($max - ($max - $min) * $k / 3);
+        $y = $T + ($H - $T - $Bo) * $k / 3; 
+        $val = round($max - ($max - $min) * $k / 3);
         $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
     }
-    foreach ([0, 3, 6, 9, 11] as $i) {
-        $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . ($i == 11 ? 'nu' : date('H:i', time() - (11 - $i) * 600)) . '</text>';
+
+    $stapLabel = max(1, floor($n / 4));
+    for ($i = 0; $i < $n; $i += $stapLabel) {
+        $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : 'punt ' . ($i + 1);
+        $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
     }
+
     $lx = round($xy[$n - 1][0], 1); $ly = round($xy[$n - 1][1], 1);
     return $o . '<path d="' . $vlak . '" fill="url(#g' . $id . ')"/><path d="' . $d . '" fill="none" stroke="' . $kleur . '" stroke-width="3" stroke-linecap="round" class="line" pathLength="1"/>'
         . '<circle cx="' . $lx . '" cy="' . $ly . '" r="10" fill="' . $kleur . '" opacity=".15"/><circle cx="' . $lx . '" cy="' . $ly . '" r="5" fill="#fff" stroke="' . $kleur . '" stroke-width="3"/></svg>';
@@ -97,13 +160,11 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
 </head>
 <body>
 
-    <!-- BOVENBALK: enkel links naar aparte pagina's (komen later) -->
+    <!-- BOVENBALK -->
     <header class="sticky-header" id="topbar">
         <a href="index.php" class="logo"><span class="logo-icon">🚨</span>Brand-Melder</a>
         <nav>
-            <a href="index.php">Home</a>
-            <a href="dashBoard.php" class="active">Dashboard</a>
-            <a href="admin.php">Admin</a>
+            <a href="index.php" class="active">Dashboard</a>
         </nav>
     </header>
 
@@ -113,10 +174,10 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
             <div class="alarm-bar"><?php echo ico('alert'); ?><strong>Rook gedetecteerd</strong> in de kamer. Controleer de ruimte en verlaat het gebouw bij brand.</div>
         <?php } ?>
 
-        <!-- BANNER met foto -->
+        <!-- BANNER -->
         <section class="dash-banner">
             <div class="dash-banner-inner">
-                <span class="live-pill"><i></i> Live • bijgewerkt om <?php echo date('H:i'); ?></span>
+                <span class="live-pill"><i></i> Live • bijgewerkt om <?php echo $laatsteUpdate; ?></span>
                 <h1>Dashboard</h1>
                 <p>Overzicht en bediening van je Brand-Melder</p>
             </div>
@@ -161,7 +222,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
             </div>
 
             <!-- METINGEN -->
-            <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste 2 uur</span></div>
+            <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste metingen uit database</span></div>
             <div class="chart-grid">
                 <section class="card chart-card">
                     <div class="chart-head">
@@ -244,42 +305,8 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
             <strong>🚨 Brand-Melder</strong>
             <p>Een slim IoT-project rond brandveiligheid.</p>
         </div>
-        <div class="footer-links">
-            <a href="#home">Home</a>
-            <a href="#over">Over het project</a>
-            <a href="#functionaliteiten">Functies</a>
-            <a href="dashBoard.php">Dashboard</a>
-        </div>
         <p class="copyright">© <?php echo date("Y"); ?> Brand-Melder</p>
     </footer>
 
-    <script>
-// Bovenbalk wordt compacter bij scrollen
-const topbar = document.getElementById('topbar');
-addEventListener('scroll', () => topbar.classList.toggle('scrolled', scrollY > 30), {passive:true});
-
-// Zijnavigatie: actieve sectie markeren
-const sideLinks = document.querySelectorAll('.side-nav a');
-if (sideLinks.length) {
-    const io = new IntersectionObserver(es => es.forEach(e => {
-        if (e.isIntersecting) sideLinks.forEach(a =>
-            a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
-    }), {rootMargin: '-45% 0px -50% 0px'});
-    sideLinks.forEach(a => { const s = document.querySelector(a.getAttribute('href')); if (s) io.observe(s); });
-}
-
-// Stappen: actieve stap oplichten tijdens het scrollen
-const stappen = document.querySelectorAll('.scroll-step');
-if (stappen.length) {
-    const io2 = new IntersectionObserver(es => es.forEach(e => {
-        if (!e.isIntersecting) return;
-        const n = e.target.dataset.step;
-        stappen.forEach(s => s.classList.toggle('active', s.dataset.step === n));
-        document.querySelectorAll('.step-tracker li').forEach(li =>
-            li.classList.toggle('active', li.dataset.step === n));
-    }), {rootMargin: '-40% 0px -40% 0px'});
-    stappen.forEach(s => io2.observe(s));
-}
-</script>
 </body>
 </html>
