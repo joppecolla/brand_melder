@@ -5,7 +5,7 @@
 header('Content-Type: application/json');
 
 // Gegevens van je Neon database
-$host = 'ep-odd-cloud-ba9zj1ve-pooler.c-8.eu-central-1.aws.neon.tech'; // Vervang met jouw Neon host
+$host = 'ep-odd-cloud-ba9zj1ve-pooler.c-8.eu-central-1.aws.neon.tech';
 $db   = 'neondb';
 $user = 'neondb_owner';
 $pass = 'npg_fC6zBKTtVY8s';
@@ -41,8 +41,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
         if ($success) {
+            // Lees de status van de melder uit melder_status.json (standaard true als bestand niet bestaat)
+            $bestand = __DIR__ . '/melder_status.json';
+            $melderAan = true;
+            if (is_file($bestand)) {
+                $opgeslagen = json_decode(file_get_contents($bestand), true);
+                if (isset($opgeslagen['melder'])) { 
+                    $melderAan = (bool)$opgeslagen['melder']; 
+                }
+            }
+
             http_response_code(200);
-            echo json_encode(["status" => "success", "message" => "Data succesvol opgeslagen"]);
+            // Stuur succes én de melder-status terug naar de ESP32
+            echo json_encode([
+                "status" => "success", 
+                "message" => "Data succesvol opgeslagen",
+                "melder" => $melderAan
+            ]);
         } else {
             http_response_code(500);
             echo json_encode(["status" => "error", "message" => "Opslaan mislukt"]);
