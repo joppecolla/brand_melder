@@ -28,8 +28,8 @@ if ($laatsteData) {
     // Bereken hoeveel seconden geleden de laatste meting is binnengekomen
     $tijdVerschil = time() - strtotime($laatsteData['created_at']);
 
-    // Als de laatste data minder dan 120 seconden (2 minuten) geleden is: Online, anders Offline
-    if ($tijdVerschil < 120) {
+    // Als de laatste data minder dan 30 seconden geleden is: Online, anders Offline
+    if ($tijdVerschil < 30) {
         $verbinding    = "Online";
         $onlineKleur   = "online"; // je CSS klasse voor groen
     } else {
