@@ -24,26 +24,32 @@ if ($laatsteData) {
     $huidigeTemp   = (float)$laatsteData['temperatuur'];
     $huidigeCo2    = (int)$laatsteData['co2'];
     $batterij      = (int)$laatsteData['batterij'];
+    $verbinding    = "Online";
     $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
-
-    // Bereken hoeveel seconden geleden de laatste meting is binnengekomen
-    $tijdVerschil = time() - strtotime($laatsteData['created_at']);
-
-    // Als de laatste data minder dan 120 seconden (2 minuten) geleden is: Online, anders Offline
-    if ($tijdVerschil < 20) {
-        $verbinding    = "Online";
-        $onlineKleur   = "online"; // je CSS klasse voor groen
-    } else {
-        $verbinding    = "Offline (geen signaal)";
-        $onlineKleur   = "offline"; // je CSS klasse voor rood/grijs
-    }
 } else {
     $huidigeTemp   = 0.0;
     $huidigeCo2    = 0;
     $batterij      = 0;
     $verbinding    = "Geen data";
-    $onlineKleur   = "offline";
     $laatsteUpdate = date('H:i');
+}
+
+$stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
+$historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
+
+$tempReeks = [];
+$co2Reeks  = [];
+$tijdReeks = [];
+
+foreach ($historie as $rij) {
+    $t = (float)$rij['temperatuur'];
+    $c = (int)$rij['co2'];
+    
+    if ($t >= -10 && $t <= 60) { $tempReeks[] = $t; }
+    if ($c >= 200 && $c <= 5000) { $co2Reeks[] = $c; }
+    
+    // Vul de tijdreeks met uur:minuut
+    $tijdReeks[] = !empty($rij['created_at']) ? date('H:i', strtotime($rij['created_at'])) : '';
 }
 
 // Test de rook-weergave met dashBoard.php?demo=rook
@@ -233,7 +239,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                     </div>
                     <div class="row">
                         <span class="tile"><?php echo ico('wifi'); ?></span>
-                        <div><small>Verbinding</small><strong><i class="<?php echo $onlineKleur; ?>"></i><?php echo $verbinding; ?></strong></div>
+                        <div><small>Verbinding</small><strong><i class="online"></i><?php echo $verbinding; ?></strong></div>
                         <?php echo ico('chev', 'chev'); ?>
                     </div>
                 </section>
@@ -311,7 +317,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         </dialog>
     </main>
 
-<script>
+    <script>
         // Event delegation voor het bevestigingsvenster
         document.addEventListener('click', (e) => {
             const openBtn = e.target.closest('#openBevestiging');
@@ -354,7 +360,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
             }
-        }, 5000); // Elke 10 seconden controleren op nieuwe data
+        }, 10000); // Elke 10 seconden
     </script>
 
     <footer class="footer">
