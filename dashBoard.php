@@ -293,8 +293,8 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
         </dialog>
     </main>
 
-    <script>
-        // Event delegation voor het bevestigingsvenster (werkt ook na achtergrond-updates)
+<script>
+        // Event delegation voor het bevestigingsvenster
         document.addEventListener('click', (e) => {
             const openBtn = e.target.closest('#openBevestiging');
             const cancelBtn = e.target.closest('#annuleer');
@@ -304,10 +304,12 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
             if (cancelBtn && dlg) dlg.close();
         });
 
-        // Automatisch op de achtergrond verversen elke 10 seconden
+        // Automatisch op de achtergrond verversen elke 10 seconden (met cache-busting)
         setInterval(async () => {
             try {
-                let response = await fetch(window.location.href);
+                // Voeg ?t=timestamp toe zodat de browser nooit een oude cache pakt
+                let url = window.location.href.split('?')[0] + '?t=' + Date.now();
+                let response = await fetch(url, { cache: 'no-store' });
                 let html = await response.text();
                 let parser = new DOMParser();
                 let doc = parser.parseFromString(html, 'text/html');
@@ -328,7 +330,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
             }
-        }, 10000); // 10000 ms = 10 seconden
+        }, 2000); // 2 seconden
     </script>
 
     <footer class="footer">
