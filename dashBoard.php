@@ -98,7 +98,7 @@ function ico(string $n, string $extra = ''): string {
     return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
 }
 
-function lijngrafiek(array $w, array $labels, string $kleur, string $eenheid, string $id): string {
+function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, array $labels = []): string {
     $n = count($w);
     
     if ($n === 0) {
@@ -109,7 +109,9 @@ function lijngrafiek(array $w, array $labels, string $kleur, string $eenheid, st
     
     if ($n === 1) {
         $w = [$w[0], $w[0]];
-        $labels = [$labels[0], $labels[0]];
+        if (!empty($labels)) {
+            $labels = [$labels[0], $labels[0]];
+        }
         $n = 2;
     }
 
@@ -148,7 +150,11 @@ function lijngrafiek(array $w, array $labels, string $kleur, string $eenheid, st
 
     $stapLabel = max(1, floor($n / 4));
     for ($i = 0; $i < $n; $i += $stapLabel) {
-        $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : ($labels[$i] ?? '');
+        if (!empty($labels) && isset($labels[$i])) {
+            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : $labels[$i];
+        } else {
+            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : ('punt ' . ($i + 1));
+        }
         $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
     }
 
@@ -239,14 +245,14 @@ function lijngrafiek(array $w, array $labels, string $kleur, string $eenheid, st
                         <span class="tile"><?php echo ico('therm'); ?></span>
                         <div><small>Temperatuur</small><strong><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't'); ?>
+                    <<?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdReeks); ?>
                 </section>
                 <section class="card chart-card">
                     <div class="chart-head">
                         <span class="tile blue"><?php echo ico('wind'); ?></span>
                         <div><small>CO₂-gehalte</small><strong><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c'); ?>
+                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c', $tijdReeks); ?>
                 </section>
             </div>
 
