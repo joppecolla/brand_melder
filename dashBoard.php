@@ -37,12 +37,19 @@ if ($laatsteData) {
 $stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
 $historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
 
-if (count($historie) > 0) {
-    $tempReeks = array_column($historie, 'temperatuur');
-    $co2Reeks  = array_column($historie, 'co2');
-} else {
-    $tempReeks = [];
-    $co2Reeks  = [];
+$tempReeks = [];
+$co2Reeks  = [];
+$tijdReeks = [];
+
+foreach ($historie as $rij) {
+    $t = (float)$rij['temperatuur'];
+    $c = (int)$rij['co2'];
+    
+    if ($t >= -10 && $t <= 60) { $tempReeks[] = $t; }
+    if ($c >= 200 && $c <= 5000) { $co2Reeks[] = $c; }
+    
+    // Vul de tijdreeks met uur:minuut
+    $tijdReeks[] = !empty($rij['created_at']) ? date('H:i', strtotime($rij['created_at'])) : '';
 }
 
 // Test de rook-weergave met dashBoard.php?demo=rook
@@ -246,7 +253,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                         <span class="tile"><?php echo ico('therm'); ?></span>
                         <div><small>Temperatuur</small><strong><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
                     </div>
-                    <<?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdReeks); ?>
+                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdReeks); ?>
                 </section>
                 <section class="card chart-card">
                     <div class="chart-head">
@@ -310,7 +317,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         </dialog>
     </main>
 
-<script>
+    <script>
         // Event delegation voor het bevestigingsvenster
         document.addEventListener('click', (e) => {
             const openBtn = e.target.closest('#openBevestiging');
@@ -353,7 +360,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
             }
-        }, 5000); // Elke 10 seconden controleren op nieuwe data
+        }, 10000); // Elke 10 seconden
     </script>
 
     <footer class="footer">
