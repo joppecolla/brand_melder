@@ -330,7 +330,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
             }
-        }, 2000); // 2 seconden
+        }, 5000); // 2 seconden
     </script>
 
     <footer class="footer">
