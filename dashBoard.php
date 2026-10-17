@@ -98,13 +98,14 @@ function ico(string $n, string $extra = ''): string {
     return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
 }
 
-function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, array $labels = []): string {
+function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?array $labels = null): string {
     $n = count($w);
     
     if ($n === 0) {
         return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen metingen beschikbaar</div>';
     }
 
+    $labels = $labels ?? [];
     $B = 420; $H = 190; $L = 40; $R = 12; $T = 14; $Bo = 26;
     
     if ($n === 1) {
