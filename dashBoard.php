@@ -112,9 +112,20 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
         $n = 2;
     }
 
-    $min = floor(min($w) - (max($w) - min($w)) * .3); 
-    $max = ceil(max($w) + (max($w) - min($w)) * .3);
-    if ($max == $min) { $max = $min + 1; }
+    $minVal = min($w);
+    $maxVal = max($w);
+
+    // Slimme grenzen om rare assen te voorkomen
+    $min = floor($minVal - ($maxVal - $minVal) * 0.1);
+    $max = ceil($maxVal + ($maxVal - $minVal) * 0.1);
+
+    if ($max == $min) { 
+        $max = $min + 5; 
+        $min = max(0, $min - 5);
+    }
+
+    // Voor temperatuur en CO2 willen we geen onrealistische negatieve assen tenzij het echt moet
+    if ($eenheid === ' ppm' && $min < 0) { $min = 0; }
 
     $xy = [];
     foreach ($w as $i => $v) {
