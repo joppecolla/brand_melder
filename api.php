@@ -41,24 +41,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
         if ($success) {
-            // Lees de status van de melder uit melder_status.json (standaard true als bestand niet bestaat)
-            $bestand = __DIR__ . '/melder_status.json';
-            $melderAan = true;
-            if (is_file($bestand)) {
-                $opgeslagen = json_decode(file_get_contents($bestand), true);
-                if (isset($opgeslagen['melder'])) { 
-                    $melderAan = (bool)$opgeslagen['melder']; 
-                }
-            }
+            // Haal de status van de melder op uit de Neon database
+            $statusStmt = $pdo->query("SELECT melder FROM systeem_status WHERE id = 1");
+            $statusRow = $statusStmt->fetch(PDO::FETCH_ASSOC);
+            $melderAan = $statusRow ? (bool)$statusRow['melder'] : true;
 
             http_response_code(200);
-            // Stuur succes én de melder-status terug naar de ESP32
             echo json_encode([
                 "status" => "success", 
                 "message" => "Data succesvol opgeslagen",
                 "melder" => $melderAan
             ]);
-        } else {
+        }
+        else {
             http_response_code(500);
             echo json_encode(["status" => "error", "message" => "Opslaan mislukt"]);
         }
