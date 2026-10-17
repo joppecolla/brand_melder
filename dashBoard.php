@@ -164,8 +164,8 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
     <header class="sticky-header" id="topbar">
         <a href="index.php" class="logo"><span class="logo-icon">🚨</span>Brand-Melder</a>
         <nav>
-            <a href="index.php" class="active">Home</a>
-            <a href="dashBoard.php">Dashboard</a>
+            <a href="index.php">Home</a>
+            <a href="dashBoard.php"class="active">Dashboard</a>
             <a href="admin.php">Admin</a>
         </nav>
     </header>
