@@ -368,6 +368,11 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                 let huidigePill = document.querySelector('.live-pill');
                 if (nieuwePill && huidigePill) huidigePill.innerHTML = nieuwePill.innerHTML;
 
+                // 5. Update verbinding status (Online / Offline)
+                let nieuweVerbinding = doc.querySelector('.list-card .row:nth-child(3)');
+                let huidigeVerbinding = document.querySelector('.list-card .row:nth-child(3)');
+                if (nieuweVerbinding && huidigeVerbinding) huidigeVerbinding.innerHTML = nieuweVerbinding.innerHTML;
+            
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
             }
