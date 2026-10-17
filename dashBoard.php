@@ -67,20 +67,29 @@ foreach ($historie as $rij) {
 $rookGedetecteerd = (($_GET['demo'] ?? '') === 'rook');
 
 // ---------- 3. Bediening: toestand bewaren in melder_status.json ----------
-$bestand = __DIR__ . '/melder_status.json';
-$staat = ['muziek' => false, 'melder' => true];
-if (is_file($bestand)) {
-    $opgeslagen = json_decode(file_get_contents($bestand), true);
-    if (is_array($opgeslagen)) { $staat = array_merge($staat, $opgeslagen); }
+// Haal status op uit Neon database
+$stmtStatus = $pdo->query("SELECT melder, muziek FROM systeem_status WHERE id = 1");
+$staat = $stmtStatus->fetch(PDO::FETCH_ASSOC);
+if (!$staat) {
+    $staat = ['melder' => true, 'muziek' => false];
 }
+
+// Als er op een knop in de dashboard is geklikt (POST):
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $melder = $staat['melder'];
+    $muziek = $staat['muziek'];
+    
     switch ($_POST['actie'] ?? '') {
-        case 'muziek_aan': if ($staat['melder']) { $staat['muziek'] = true; } break;
-        case 'muziek_uit': $staat['muziek'] = false; break;
-        case 'melder_uit': $staat['melder'] = false; $staat['muziek'] = false; break;
-        case 'melder_aan': $staat['melder'] = true; break;
+        case 'muziek_aan': if ($melder) { $muziek = true; } break;
+        case 'muziek_uit': $muziek = false; break;
+        case 'melder_uit': $melder = false; $muziek = false; break;
+        case 'melder_aan': $melder = true; break;
     }
-    file_put_contents($bestand, json_encode($staat), LOCK_EX);
+    
+    // Sla de nieuwe status op in de database
+    $updateStmt = $pdo->prepare("UPDATE systeem_status SET melder = :melder, muziek = :muziek WHERE id = 1");
+    $updateStmt->execute(['melder' => $melder ? 1 : 0, 'muziek' => $muziek ? 1 : 0]);
+    
     header('Location: dashBoard.php');
     exit;
 }
