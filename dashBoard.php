@@ -16,6 +16,7 @@ try {
     die("Databaseverbinding mislukt: " . $e->getMessage());
 }
 
+// ---------- 2. Echte sensordata ophalen uit de database ----------
 $stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data ORDER BY created_at DESC LIMIT 1");
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -23,25 +24,13 @@ if ($laatsteData) {
     $huidigeTemp   = (float)$laatsteData['temperatuur'];
     $huidigeCo2    = (int)$laatsteData['co2'];
     $batterij      = (int)$laatsteData['batterij'];
+    $verbinding    = "Online";
     $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
-
-    // Bereken hoeveel seconden geleden de laatste meting is binnengekomen
-    $tijdVerschil = time() - strtotime($laatsteData['created_at']);
-
-    // Als de laatste data minder dan 120 seconden (2 minuten) geleden is: Online, anders Offline
-    if ($tijdVerschil < 120) {
-        $verbinding    = "Online";
-        $onlineKleur   = "online"; // je CSS klasse voor groen
-    } else {
-        $verbinding    = "Offline (geen signaal)";
-        $onlineKleur   = "offline"; // je CSS klasse voor rood/grijs
-    }
 } else {
     $huidigeTemp   = 0.0;
     $huidigeCo2    = 0;
     $batterij      = 0;
     $verbinding    = "Geen data";
-    $onlineKleur   = "offline";
     $laatsteUpdate = date('H:i');
 }
 
@@ -250,7 +239,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                     </div>
                     <div class="row">
                         <span class="tile"><?php echo ico('wifi'); ?></span>
-                        <div><small>Verbinding</small><strong><i class="<?php echo $onlineKleur; ?>"></i><?php echo $verbinding; ?></strong></div>
+                        <div><small>Verbinding</small><strong><i class="online"></i><?php echo $verbinding; ?></strong></div>
                         <?php echo ico('chev', 'chev'); ?>
                     </div>
                 </section>
