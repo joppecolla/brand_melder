@@ -304,33 +304,39 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
             if (cancelBtn && dlg) dlg.close();
         });
 
-        // Automatisch op de achtergrond verversen elke 10 seconden (met cache-busting)
+        // Update alleen de live getallen en status op de achtergrond (zonder grafiek-flicker)
         setInterval(async () => {
             try {
-                // Voeg ?t=timestamp toe zodat de browser nooit een oude cache pakt
                 let url = window.location.href.split('?')[0] + '?t=' + Date.now();
                 let response = await fetch(url, { cache: 'no-store' });
                 let html = await response.text();
                 let parser = new DOMParser();
                 let doc = parser.parseFromString(html, 'text/html');
                 
-                // Vervang de inhoud van de dashboard-wrap naadloos
-                let newDashWrap = doc.querySelector('.dash-wrap');
-                let currentDashWrap = document.querySelector('.dash-wrap');
-                if (newDashWrap && currentDashWrap) {
-                    currentDashWrap.innerHTML = newDashWrap.innerHTML;
-                }
+                // 1. Update temperatuur waarde
+                let nieuweTemp = doc.querySelector('.chart-card:nth-of-type(1) .chart-head strong');
+                let huidigeTemp = document.querySelector('.chart-card:nth-of-type(1) .chart-head strong');
+                if (nieuweTemp && huidigeTemp) huidigeTemp.innerHTML = nieuweTemp.innerHTML;
 
-                // Werk ook de 'live' tijd in de banner bij
-                let newLivePill = doc.querySelector('.live-pill');
-                let currentLivePill = document.querySelector('.live-pill');
-                if (newLivePill && currentLivePill) {
-                    currentLivePill.innerHTML = newLivePill.innerHTML;
-                }
+                // 2. Update CO2 waarde
+                let nieuweCo2 = doc.querySelector('.chart-card:nth-of-type(2) .chart-head strong');
+                let huidigeCo2 = document.querySelector('.chart-card:nth-of-type(2) .chart-head strong');
+                if (nieuweCo2 && huidigeCo2) huidigeCo2.innerHTML = nieuweCo2.innerHTML;
+
+                // 3. Update batterij percentage
+                let nieuweBat = doc.querySelector('.list-card .row:nth-child(2) strong');
+                let huidigeBat = document.querySelector('.list-card .row:nth-child(2) strong');
+                if (nieuweBat && huidigeBat) huidigeBat.innerHTML = nieuweBat.innerHTML;
+
+                // 4. Update live tijd in de banner
+                let nieuwePill = doc.querySelector('.live-pill');
+                let huidigePill = document.querySelector('.live-pill');
+                if (nieuwePill && huidigePill) huidigePill.innerHTML = nieuwePill.innerHTML;
+
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
             }
-        }, 5000); // 2 seconden
+        }, 5000); // Elke 10 seconden controleren op nieuwe data
     </script>
 
     <footer class="footer">
