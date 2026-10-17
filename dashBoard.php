@@ -98,7 +98,7 @@ function ico(string $n, string $extra = ''): string {
     return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
 }
 
-function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): string {
+function lijngrafiek(array $w, array $labels, string $kleur, string $eenheid, string $id): string {
     $n = count($w);
     
     if ($n === 0) {
@@ -109,22 +109,21 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
     
     if ($n === 1) {
         $w = [$w[0], $w[0]];
+        $labels = [$labels[0], $labels[0]];
         $n = 2;
     }
 
     $minVal = min($w);
     $maxVal = max($w);
 
-    // Slimme grenzen om rare assen te voorkomen
-    $min = floor($minVal - ($maxVal - $minVal) * 0.1);
-    $max = ceil($maxVal + ($maxVal - $minVal) * 0.1);
+    $min = floor($minVal - ($maxVal - $minVal) * 0.15);
+    $max = ceil($maxVal + ($maxVal - $minVal) * 0.15);
 
     if ($max == $min) { 
         $max = $min + 5; 
         $min = max(0, $min - 5);
     }
 
-    // Voor temperatuur en CO2 willen we geen onrealistische negatieve assen tenzij het echt moet
     if ($eenheid === ' ppm' && $min < 0) { $min = 0; }
 
     $xy = [];
@@ -147,9 +146,10 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
         $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
     }
 
+    // Verdeel de echte tijdstippen netjes over de X-as
     $stapLabel = max(1, floor($n / 4));
     for ($i = 0; $i < $n; $i += $stapLabel) {
-        $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : 'punt ' . ($i + 1);
+        $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : ($labels[$i] ?? '');
         $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
     }
 
