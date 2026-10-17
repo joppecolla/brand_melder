@@ -17,7 +17,6 @@ try {
 }
 
 // ---------- 2. Echte sensordata ophalen uit de database ----------
-// 1. Haal de meest recente meting op voor de hoofdtellers
 $stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data ORDER BY created_at DESC LIMIT 1");
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -35,7 +34,6 @@ if ($laatsteData) {
     $laatsteUpdate = date('H:i');
 }
 
-// 2. Haal alle recente metingen op voor de historische grafieken
 $stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
 $historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
 
@@ -47,7 +45,7 @@ if (count($historie) > 0) {
     $co2Reeks  = [];
 }
 
-// Test de rook-weergave met index.php?demo=rook
+// Test de rook-weergave met dashBoard.php?demo=rook
 $rookGedetecteerd = (($_GET['demo'] ?? '') === 'rook');
 
 // ---------- 3. Bediening: toestand bewaren in melder_status.json ----------
@@ -65,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'melder_aan': $staat['melder'] = true; break;
     }
     file_put_contents($bestand, json_encode($staat), LOCK_EX);
-    header('Location: index.php');
+    header('Location: dashBoard.php');
     exit;
 }
 
@@ -165,7 +163,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
         <a href="index.php" class="logo"><span class="logo-icon">🚨</span>Brand-Melder</a>
         <nav>
             <a href="index.php">Home</a>
-            <a href="dashBoard.php"class="active">Dashboard</a>
+            <a href="dashBoard.php" class="active">Dashboard</a>
             <a href="admin.php">Admin</a>
         </nav>
     </header>
@@ -296,10 +294,41 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id): stri
     </main>
 
     <script>
-        const dlg = document.getElementById('bevestiging');
-        const open = document.getElementById('openBevestiging');
-        if (open) open.addEventListener('click', () => dlg.showModal());
-        document.getElementById('annuleer').addEventListener('click', () => dlg.close());
+        // Event delegation voor het bevestigingsvenster (werkt ook na achtergrond-updates)
+        document.addEventListener('click', (e) => {
+            const openBtn = e.target.closest('#openBevestiging');
+            const cancelBtn = e.target.closest('#annuleer');
+            const dlg = document.getElementById('bevestiging');
+
+            if (openBtn && dlg) dlg.showModal();
+            if (cancelBtn && dlg) dlg.close();
+        });
+
+        // Automatisch op de achtergrond verversen elke 10 seconden
+        setInterval(async () => {
+            try {
+                let response = await fetch(window.location.href);
+                let html = await response.text();
+                let parser = new DOMParser();
+                let doc = parser.parseFromString(html, 'text/html');
+                
+                // Vervang de inhoud van de dashboard-wrap naadloos
+                let newDashWrap = doc.querySelector('.dash-wrap');
+                let currentDashWrap = document.querySelector('.dash-wrap');
+                if (newDashWrap && currentDashWrap) {
+                    currentDashWrap.innerHTML = newDashWrap.innerHTML;
+                }
+
+                // Werk ook de 'live' tijd in de banner bij
+                let newLivePill = doc.querySelector('.live-pill');
+                let currentLivePill = document.querySelector('.live-pill');
+                if (newLivePill && currentLivePill) {
+                    currentLivePill.innerHTML = newLivePill.innerHTML;
+                }
+            } catch (error) {
+                console.error('Fout bij achtergrond-update:', error);
+            }
+        }, 10000); // 10000 ms = 10 seconden
     </script>
 
     <footer class="footer">
