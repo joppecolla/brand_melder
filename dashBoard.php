@@ -146,7 +146,6 @@ function lijngrafiek(array $w, array $labels, string $kleur, string $eenheid, st
         $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
     }
 
-    // Verdeel de echte tijdstippen netjes over de X-as
     $stapLabel = max(1, floor($n / 4));
     for ($i = 0; $i < $n; $i += $stapLabel) {
         $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : ($labels[$i] ?? '');
