@@ -457,6 +457,13 @@ setInterval(async () => {
             'Temp nieuw:',
             nieuweTempWaarde
         );
+
+        console.log(
+            'CO2 oud:',
+            laatsteCo2,
+            'CO2 nieuw:',
+            nieuweCo2Waarde
+        );
         
         if (verandering) {
 
