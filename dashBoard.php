@@ -1,6 +1,7 @@
 <?php
 // Verberg eventuele runtime warnings in productie (optioneel, maar houdt het scherm schoon)
 error_reporting(E_ALL & ~E_WARNING & ~E_DEPRECATED);
+date_default_timezone_set('Europe/Brussels');
 
 // ---------- 1. Verbinding maken met Neon (PostgreSQL via Environment Variables) ----------
 $host = getenv('NEON_HOST');
@@ -16,99 +17,135 @@ try {
     die("Databaseverbinding mislukt: " . $e->getMessage());
 }
 
-// Haal de allerlaatste geldige meting op voor de statuskaarten
-$stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data WHERE temperatuur > 0 AND co2 > 0 ORDER BY created_at DESC LIMIT 1");
+$stmt = $pdo->query("SELECT temperatuur, co2, batterij, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data ORDER BY created_at DESC LIMIT 1");
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if ($laatsteData) {
-    $huidigeTemp   = number_format((float)$laatsteData['temperatuur'], 1, ',', '') . ' <em>°C</em>';
-    $huidigeCo2    = (int)$laatsteData['co2'] . ' <em>ppm</em>';
+    $huidigeTemp   = (float)$laatsteData['temperatuur'];
+    $huidigeCo2    = (int)$laatsteData['co2'];
     $batterij      = (int)$laatsteData['batterij'];
-    $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
-
-    // Bereken hoeveel seconden geleden de laatste meting is binnengekomen
-    $tijdVerschil = time() - strtotime($laatsteData['created_at']);
-
-    if ($tijdVerschil < 30) {
-        $verbinding    = "Online";
-        $onlineKleur   = "online";
-    } else {
-        $verbinding    = "Offline (geen signaal)";
-        $onlineKleur   = "offline";
-    }
+    $laatsteUpdate = date('H:i', strtotime($laatsteData['lokaal']));
 } else {
-    $huidigeTemp   = 'Geen data';
-    $huidigeCo2    = 'Geen data';
+    $huidigeTemp   = 0.0;
+    $huidigeCo2    = 0;
     $batterij      = 0;
-    $verbinding    = "Geen data beschikbaar";
-    $onlineKleur   = "offline";
     $laatsteUpdate = date('H:i');
 }
 
-// ---------- 2. Historische data ophalen voor de grafieken ----------
-$stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
+$stmtReeks = $pdo->query("SELECT temperatuur, co2, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data ORDER BY created_at ASC");
 $historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
 
 $tempReeks = [];
 $co2Reeks  = [];
-$tijdTemp  = [];
-$tijdCo2   = [];
+$tijdReeks = [];
 
 foreach ($historie as $rij) {
     $t = (float)$rij['temperatuur'];
     $c = (int)$rij['co2'];
-    $tijd = !empty($rij['created_at']) ? date('H:i', strtotime($rij['created_at'])) : '';
     
-    // Filter alleen échte geldige metingen (geen 0 of uitval)
-    if ($t > -20 && $t <= 80 && $t != 0) { 
-        $tempReeks[] = $t; 
-        $tijdTemp[]  = $tijd;
-    }
-    if ($c >= 300 && $c <= 5000) { 
-        $co2Reeks[] = $c; 
-        $tijdCo2[]  = $tijd;
-    }
+    if ($t >= -10 && $t <= 60) { $tempReeks[] = $t; }
+    if ($c >= 200 && $c <= 5000) { $co2Reeks[] = $c; }
+    
+    // Vul de tijdreeks met uur:minuut
+    $tijdReeks[] = !empty($rij['lokaal']) ? date('H:i', strtotime($rij['lokaal'])) : '';
 }
 
-// Test de rook-weergave met dashBoard.php?demo=rook
-$rookGedetecteerd = (($_GET['demo'] ?? '') === 'rook');
+// Test de alarm-weergave met dashBoard.php?demo=rook
+$demoAlarm = (($_GET['demo'] ?? '') === 'rook');
 
-// ---------- 3. Bediening: status ophalen en verwerken ----------
-$stmtStatus = $pdo->query("SELECT melder, muziek FROM systeem_status WHERE id = 1");
-$staat = $stmtStatus->fetch(PDO::FETCH_ASSOC);
-if (!$staat) {
-    $staat = ['melder' => true, 'muziek' => false];
+function pgBool($v): bool { return $v === true || $v === 't' || $v === 'true' || $v === 1 || $v === '1'; }
+function meld(PDO $pdo, string $tekst, string $niveau): void {
+    $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
 }
 
+// ---------- 3. Bediening: wensen worden in de database bewaard, de melder haalt ze op ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $melder = $staat['melder'];
-    $muziek = $staat['muziek'];
-    
     switch ($_POST['actie'] ?? '') {
-        case 'muziek_aan': if ($melder) { $muziek = true; } break;
-        case 'muziek_uit': $muziek = false; break;
-        case 'melder_uit': $melder = false; $muziek = false; break;
-        case 'melder_aan': $melder = true; break;
+        case 'muziek_aan':
+            if ($pdo->exec("UPDATE melder_status SET muziek = true WHERE id = 1 AND melder_aan = true AND muziek = false")) {
+                meld($pdo, 'Muziekalarm gestart', 'info');
+            }
+            break;
+        case 'muziek_uit':
+            if ($pdo->exec("UPDATE melder_status SET muziek = false WHERE id = 1 AND muziek = true")) {
+                meld($pdo, 'Muziekalarm gestopt', 'info');
+            }
+            break;
+        case 'melder_uit':
+            if ($pdo->exec("UPDATE melder_status SET melder_aan = false, muziek = false WHERE id = 1 AND melder_aan = true")) {
+                meld($pdo, 'Uitzetten aangevraagd via dashboard', 'info');
+            }
+            break;
+        case 'melder_aan':
+            if ($pdo->exec("UPDATE melder_status SET melder_aan = true WHERE id = 1 AND melder_aan = false")) {
+                meld($pdo, 'Aanzetten aangevraagd via dashboard', 'info');
+            }
+            break;
     }
-    
-    $updateStmt = $pdo->prepare("UPDATE systeem_status SET melder = :melder, muziek = :muziek WHERE id = 1");
-    $updateStmt->execute(['melder' => $melder ? 1 : 0, 'muziek' => $muziek ? 1 : 0]);
-    
     header('Location: dashBoard.php');
     exit;
 }
 
-// ---------- 4. Status bepalen ----------
-if (!$staat['melder'])      { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';  $titel = 'Melder uitgeschakeld'; $sub = 'De rookmelder detecteert momenteel niets.'; }
-elseif ($rookGedetecteerd)  { $niveau = 'alarm'; $systeemStatus = 'Rook gedetecteerd'; $titel = 'Rook gedetecteerd!'; $sub = 'Er is rook gedetecteerd in de kamer.'; }
-else                        { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig'; $titel = 'Alles in orde'; $sub = 'Er is geen rook gedetecteerd.'; }
+// ---------- 4. Toestand van de melder zoals de melder zelf die doorgeeft ----------
+try {
+    $ms = $pdo->query("SELECT melder_aan, muziek, apparaat_aan, apparaat_modus, alarm_actief, alarm_gedempt, alarm_reden,
+                              EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden
+                       FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+    $rijen = $pdo->query("SELECT tekst, niveau, (created_at AT TIME ZONE 'Europe/Brussels') AS lokaal
+                          FROM meldingen ORDER BY created_at DESC LIMIT 6")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    die("Database niet klaar: voer eerst setup.sql uit in Neon. (" . $e->getMessage() . ")");
+}
 
-$meldingen = [
-    ['Muziekalarm gestopt', '08:12 - Gisteren', 'info'],
-    ['Melder ingeschakeld', '19:30 - Gisteren', 'ok'],
-    ['Batterij gecontroleerd (' . $batterij . '%)', '09:00 - Gisteren', 'info'],
-];
-if ($rookGedetecteerd && $staat['melder']) { array_unshift($meldingen, ['Rook gedetecteerd', date('H:i') . ' - Vandaag', 'alarm']); }
+$staat        = ['melder' => pgBool($ms['melder_aan']), 'muziek' => pgBool($ms['muziek'])];
+$apparaatAan  = pgBool($ms['apparaat_aan']);
+$lokaal       = ($ms['apparaat_modus'] === 'lokaal');
+$seconden     = $ms['seconden'] !== null ? (float)$ms['seconden'] : null;
+$contactVers  = ($seconden !== null && $seconden <= 90);   // melder pingt elke ~15 s
+$alarmActief  = pgBool($ms['alarm_actief']);
+$gedempt      = pgBool($ms['alarm_gedempt']);
+$wijzigingBezig = $contactVers && !$lokaal && ($staat['melder'] !== $apparaatAan);
+
+// Verbinding
+if ($lokaal)                 { $verbinding = 'Lokale modus (geen wifi)'; $onlineKleur = 'offline'; }
+elseif ($seconden === null)  { $verbinding = 'Geen data';                $onlineKleur = 'offline'; }
+elseif ($contactVers)        { $verbinding = 'Online';                   $onlineKleur = 'online'; }
+else                         { $verbinding = 'Offline (geen signaal)';   $onlineKleur = 'offline'; }
+
+// Alarmtekst
+$reden = $ms['alarm_reden'];
+if ($reden === 'co2')              { $alarmDetail = 'CO₂-gehalte te hoog: ' . $huidigeCo2 . ' ppm'; }
+elseif ($reden === 'temperatuur')  { $alarmDetail = 'Temperatuur te hoog: ' . round($huidigeTemp, 1) . ' °C'; }
+elseif ($reden === 'handmatig')    { $alarmDetail = 'Handmatig alarm op de melder'; }
+else                               { $alarmDetail = 'Alarm op de melder'; }
+if ($gedempt) { $alarmDetail .= ' (buzzer gedempt op de melder)'; }
+if ($demoAlarm) { $alarmDetail = 'Demo-alarm'; }
+
+// Status: "Actief & Veilig" alleen als de melder dat zelf recent heeft doorgegeven
+if ($demoAlarm)           { $niveau = 'alarm'; $systeemStatus = 'Alarm';             $titel = 'Alarm!';               $sub = $alarmDetail . '.'; }
+elseif ($lokaal)          { $niveau = 'uit';   $systeemStatus = 'Lokale modus';      $titel = 'Melder in lokale modus'; $sub = 'De melder is op het apparaat offline gezet. Hij stuurt geen gegevens door, dus de status is onbekend.'; }
+elseif (!$contactVers)    { $niveau = 'uit';   $systeemStatus = 'Geen verbinding';   $titel = 'Melder offline';       $sub = $seconden === null ? 'Er is nog nooit contact geweest met de melder.' : 'Er is geen signaal van de melder. De status is onbekend.'; }
+elseif (!$apparaatAan)    { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';     $titel = 'Melder uitgeschakeld'; $sub = 'De rookmelder detecteert momenteel niets.'; }
+elseif ($alarmActief)     { $niveau = 'alarm'; $systeemStatus = 'Alarm';             $titel = 'Alarm!';               $sub = $alarmDetail . '.'; }
+else                      { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig';   $titel = 'Alles in orde';        $sub = 'De melder is verbonden en er is geen alarm.'; }
+if ($wijzigingBezig && $niveau !== 'alarm') { $sub .= ' Wijziging wordt doorgegeven aan de melder…'; }
+
+// Tekst bij de rookmelder-bediening
+if ($lokaal)               { $melderTekst = 'Lokale modus, niet bereikbaar'; }
+elseif (!$contactVers)     { $melderTekst = 'Geen verbinding'; }
+elseif ($wijzigingBezig)   { $melderTekst = 'Wijziging wordt doorgegeven…'; }
+else                       { $melderTekst = $apparaatAan ? 'Actief en bewaakt' : 'Uitgeschakeld'; }
+$bedieningInfo = ($lokaal || !$contactVers) ? 'De melder is nu niet bereikbaar. Je keuze wordt toegepast zodra hij weer online is.' : '';
+
+// Recente meldingen uit de database
+$meldingen = [];
+foreach ($rijen as $r) {
+    $t = strtotime($r['lokaal']);
+    $dag = date('Y-m-d', $t) === date('Y-m-d') ? 'Vandaag'
+         : (date('Y-m-d', $t) === date('Y-m-d', strtotime('-1 day')) ? 'Gisteren' : date('d-m', $t));
+    $meldingen[] = [$r['tekst'], date('H:i', $t) . ' - ' . $dag, $r['niveau']];
+}
+if ($demoAlarm) { array_unshift($meldingen, ['Demo-alarm', date('H:i') . ' - Vandaag', 'alarm']); }
 
 function ico(string $n, string $extra = ''): string {
     $p = [
@@ -132,9 +169,8 @@ function ico(string $n, string $extra = ''): string {
 function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?array $labels = null): string {
     $n = count($w);
     
-    // Nettere melding als er nog geen data in de tabel staat
     if ($n === 0) {
-        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem; font-weight: 500;">Nog geen geldige metingen beschikbaar</div>';
+        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen metingen beschikbaar</div>';
     }
 
     $labels = $labels ?? [];
@@ -142,29 +178,24 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     
     if ($n === 1) {
         $w = [$w[0], $w[0]];
-        if (!empty($labels)) { $labels = [$labels[0], $labels[0]]; }
+        if (!empty($labels)) {
+            $labels = [$labels[0], $labels[0]];
+        }
         $n = 2;
     }
 
     $minVal = min($w);
     $maxVal = max($w);
-    $spreiding = $maxVal - $minVal;
 
-    if ($eenheid === ' °C') {
-        $min = floor($minVal - 1.0);
-        $max = ceil($maxVal + 1.0);
-        if ($max - $min < 3) { $max = $min + 3; }
-    } else {
-        $marge = max(30, $spreiding * 0.2);
-        $min = floor(($minVal - $marge) / 10) * 10;
-        $max = ceil(($maxVal + $marge) / 10) * 10;
-        if ($min < 300) { $min = 300; }
-    }
+    $min = floor($minVal - ($maxVal - $minVal) * 0.15);
+    $max = ceil($maxVal + ($maxVal - $minVal) * 0.15);
 
     if ($max == $min) { 
-        $max = $min + 4; 
-        $min = max(0, $min - 4);
+        $max = $min + 5; 
+        $min = max(0, $min - 5);
     }
+
+    if ($eenheid === ' ppm' && $min < 0) { $min = 0; }
 
     $xy = [];
     foreach ($w as $i => $v) {
@@ -182,15 +213,17 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     
     for ($k = 0; $k < 4; $k++) {
         $y = $T + ($H - $T - $Bo) * $k / 3; 
-        $val = $max - ($max - $min) * $k / 3;
-        $labelVal = ($eenheid === ' °C') ? number_format($val, 1, ',', '') : round($val);
-        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $labelVal . '</text>';
+        $val = round($max - ($max - $min) * $k / 3);
+        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
     }
 
-    $stapLabel = max(1, floor($n / 3));
+    $stapLabel = max(1, floor($n / 4));
     for ($i = 0; $i < $n; $i += $stapLabel) {
-        $isLaatste = ($i >= $n - 2);
-        $label = $isLaatste ? 'nu' : ($labels[$i] ?? '');
+        if (!empty($labels) && isset($labels[$i])) {
+            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : $labels[$i];
+        } else {
+            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : ('punt ' . ($i + 1));
+        }
         $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
     }
 
@@ -222,14 +255,16 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
 
     <main class="dash-page">
 
+        <div id="alarm-wrap">
         <?php if ($niveau === 'alarm') { ?>
-            <div class="alarm-bar"><?php echo ico('alert'); ?><strong>Rook gedetecteerd</strong> in de kamer. Controleer de ruimte en verlaat het gebouw bij brand.</div>
+            <div class="alarm-bar"><?php echo ico('alert'); ?><strong>Alarm:</strong>&nbsp;<?php echo htmlspecialchars($alarmDetail); ?>. Controleer de ruimte en verlaat het gebouw bij brand.</div>
         <?php } ?>
+        </div>
 
         <!-- BANNER -->
         <section class="dash-banner">
             <div class="dash-banner-inner">
-                <span class="live-pill"><i></i> Live • bijgewerkt om <?php echo $laatsteUpdate; ?></span>
+                <span class="live-pill" id="live-pill"><i></i> Live • bijgewerkt om <?php echo $laatsteUpdate; ?></span>
                 <h1>Dashboard</h1>
                 <p>Overzicht en bediening van je Brand-Melder</p>
             </div>
@@ -239,7 +274,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
 
             <!-- STATUS + OVERZICHT -->
             <div class="dash-top">
-                <section class="card status-hero <?php echo $niveau; ?>">
+                <section class="card status-hero <?php echo $niveau; ?>" id="status-hero">
                     <div class="gauge">
                         <svg viewBox="0 0 120 120" aria-hidden="true">
                             <circle cx="60" cy="60" r="52" class="gauge-bg" pathLength="100"/>
@@ -252,7 +287,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                     <a href="#grafieken" class="cta-button">Bekijk live gegevens</a>
                 </section>
 
-                <section class="card list-card">
+                <section class="card list-card" id="systeem-card">
                     <h3 class="card-title">Systeem</h3>
                     <div class="row">
                         <span class="tile <?php echo $niveau; ?>"><?php echo ico('shield'); ?></span>
@@ -279,22 +314,22 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                 <section class="card chart-card">
                     <div class="chart-head">
                         <span class="tile"><?php echo ico('therm'); ?></span>
-                        <div><small>Temperatuur</small><strong><?php echo $huidigeTemp; ?></strong></div>
+                        <div><small>Temperatuur</small><strong id="temp-waarde"><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdTemp); ?>
+                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdReeks); ?>
                 </section>
                 <section class="card chart-card">
                     <div class="chart-head">
                         <span class="tile blue"><?php echo ico('wind'); ?></span>
-                        <div><small>CO₂-gehalte</small><strong><?php echo $huidigeCo2; ?></strong></div>
+                        <div><small>CO₂-gehalte</small><strong id="co2-waarde"><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c', $tijdCo2); ?>
+                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c', $tijdReeks); ?>
                 </section>
             </div>
 
             <!-- BEDIENING + MELDINGEN -->
             <div class="dash-bottom">
-                <section class="card">
+                <section class="card" id="bediening-card">
                     <h3 class="card-title">Bediening</h3>
 
                     <div class="control">
@@ -311,7 +346,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
 
                     <div class="control">
                         <span class="tile <?php echo $niveau === 'uit' ? 'uit' : ''; ?>"><?php echo ico('power'); ?></span>
-                        <div><strong>Rookmelder</strong><small><?php echo $staat['melder'] ? 'Actief en bewaakt' : 'Uitgeschakeld'; ?></small></div>
+                        <div><strong>Rookmelder</strong><small><?php echo $melderTekst; ?></small></div>
                     </div>
                     <?php if ($staat['melder']) { ?>
                         <button type="button" class="ctrl-btn danger wide" id="openBevestiging"><?php echo ico('power'); ?>Rookmelder uitzetten</button>
@@ -319,10 +354,12 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                         <form method="post"><button name="actie" value="melder_aan" class="ctrl-btn success wide"><?php echo ico('power'); ?>Rookmelder aanzetten</button></form>
                         <p class="control-warning">De rookmelder staat uit en detecteert geen rook.</p>
                     <?php } ?>
+                    <?php if ($bedieningInfo) { ?><p class="control-warning"><?php echo $bedieningInfo; ?></p><?php } ?>
                 </section>
 
-                <section class="card">
+                <section class="card" id="meldingen-card">
                     <h3 class="card-title">Recente meldingen</h3>
+                    <?php if (!$meldingen) { ?><p class="control-warning" style="background:none;border:0;color:inherit;opacity:.7">Nog geen meldingen.</p><?php } ?>
                     <?php foreach ($meldingen as $m) { ?>
                         <div class="row note">
                             <span class="tile sm <?php echo $m[2]; ?>"><?php echo ico($m[2] === 'alarm' ? 'flame' : 'bell'); ?></span>
@@ -356,40 +393,24 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
             if (cancelBtn && dlg) dlg.close();
         });
 
-        // Update alleen de live getallen en status op de achtergrond (zonder grafiek-flicker)
+        // Ververs live onderdelen op de achtergrond (zonder grafiek-flicker)
+        const syncIds = ['alarm-wrap', 'live-pill', 'status-hero', 'systeem-card', 'temp-waarde', 'co2-waarde', 'meldingen-card', 'bediening-card'];
+
         setInterval(async () => {
             try {
-                let url = window.location.href.split('?')[0] + '?t=' + Date.now();
-                let response = await fetch(url, { cache: 'no-store' });
-                let html = await response.text();
-                let parser = new DOMParser();
-                let doc = parser.parseFromString(html, 'text/html');
-                
-                // 1. Update temperatuur waarde
-                let nieuweTemp = doc.querySelector('.chart-card:nth-of-type(1) .chart-head strong');
-                let huidigeTemp = document.querySelector('.chart-card:nth-of-type(1) .chart-head strong');
-                if (nieuweTemp && huidigeTemp) huidigeTemp.innerHTML = nieuweTemp.innerHTML;
+                const url = window.location.href.split('?')[0] + '?t=' + Date.now();
+                const response = await fetch(url, { cache: 'no-store' });
+                const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+                const dialoogOpen = document.getElementById('bevestiging')?.open;
 
-                // 2. Update CO2 waarde
-                let nieuweCo2 = doc.querySelector('.chart-card:nth-of-type(2) .chart-head strong');
-                let huidigeCo2 = document.querySelector('.chart-card:nth-of-type(2) .chart-head strong');
-                if (nieuweCo2 && huidigeCo2) huidigeCo2.innerHTML = nieuweCo2.innerHTML;
-
-                // 3. Update batterij percentage
-                let nieuweBat = doc.querySelector('.list-card .row:nth-child(2) strong');
-                let huidigeBat = document.querySelector('.list-card .row:nth-child(2) strong');
-                if (nieuweBat && huidigeBat) huidigeBat.innerHTML = nieuweBat.innerHTML;
-
-                // 4. Update live tijd in de banner
-                let nieuwePill = doc.querySelector('.live-pill');
-                let huidigePill = document.querySelector('.live-pill');
-                if (nieuwePill && huidigePill) huidigePill.innerHTML = nieuwePill.innerHTML;
-
-                // 5. Update verbinding status (Online / Offline)
-                let nieuweVerbinding = doc.getElementById('verbinding-row');
-                let huidigeVerbinding = document.getElementById('verbinding-row');
-                if (nieuweVerbinding && huidigeVerbinding) huidigeVerbinding.innerHTML = nieuweVerbinding.innerHTML;
-            
+                for (const id of syncIds) {
+                    if (id === 'bediening-card' && dialoogOpen) continue;
+                    const nieuw = doc.getElementById(id);
+                    const huidig = document.getElementById(id);
+                    if (!nieuw || !huidig) continue;
+                    if (huidig.className !== nieuw.className) huidig.className = nieuw.className;
+                    if (huidig.innerHTML !== nieuw.innerHTML) huidig.innerHTML = nieuw.innerHTML;
+                }
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
             }
