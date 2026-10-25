@@ -1102,3 +1102,8 @@ img {
 @media (prefers-reduced-motion: reduce) { .chart .line, .eq i, .gauge, .alarm-bar { animation: none !important; } .chart .line { stroke-dashoffset: 0; } }
 /* Rode stip voor "offline" op het dashboard */
 .offline { width: 8px; height: 8px; border-radius: 50%; background: #e76f51; box-shadow: 0 0 0 4px rgba(231,111,81,.2); display: inline-block; margin-right: 8px; }
+
+#temp-chart,
+#co2-chart {
+    transition: opacity 0.25s ease-in-out;
+}
