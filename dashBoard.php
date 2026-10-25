@@ -16,67 +16,70 @@ try {
     die("Databaseverbinding mislukt: " . $e->getMessage());
 }
 
-$stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data ORDER BY created_at DESC LIMIT 1");
+// Haal de allerlaatste geldige meting op voor de statuskaarten
+$stmt = $pdo->query("SELECT temperatuur, co2, batterij, created_at FROM sensor_data WHERE temperatuur > 0 AND co2 > 0 ORDER BY created_at DESC LIMIT 1");
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if ($laatsteData) {
-    $huidigeTemp   = (float)$laatsteData['temperatuur'];
-    $huidigeCo2    = (int)$laatsteData['co2'];
+    $huidigeTemp   = number_format((float)$laatsteData['temperatuur'], 1, ',', '') . ' <em>°C</em>';
+    $huidigeCo2    = (int)$laatsteData['co2'] . ' <em>ppm</em>';
     $batterij      = (int)$laatsteData['batterij'];
     $laatsteUpdate = date('H:i', strtotime($laatsteData['created_at']));
 
     // Bereken hoeveel seconden geleden de laatste meting is binnengekomen
     $tijdVerschil = time() - strtotime($laatsteData['created_at']);
 
-    // Als de laatste data minder dan 30 seconden geleden is: Online, anders Offline
     if ($tijdVerschil < 30) {
         $verbinding    = "Online";
-        $onlineKleur   = "online"; // je CSS klasse voor groen
+        $onlineKleur   = "online";
     } else {
         $verbinding    = "Offline (geen signaal)";
-        $onlineKleur   = "offline"; // je CSS klasse voor rood/grijs
+        $onlineKleur   = "offline";
     }
 } else {
-    $huidigeTemp   = 0.0;
-    $huidigeCo2    = 0;
+    $huidigeTemp   = 'Geen data';
+    $huidigeCo2    = 'Geen data';
     $batterij      = 0;
-    $verbinding    = "Geen data";
+    $verbinding    = "Geen data beschikbaar";
     $onlineKleur   = "offline";
     $laatsteUpdate = date('H:i');
 }
 
-// Haal de historische data op en filter direct onlogische/0-waardes eruit
+// ---------- 2. Historische data ophalen voor de grafieken ----------
 $stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
 $historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
 
 $tempReeks = [];
 $co2Reeks  = [];
-$tijdReeks = [];
+$tijdTemp  = [];
+$tijdCo2   = [];
 
 foreach ($historie as $rij) {
     $t = (float)$rij['temperatuur'];
     $c = (int)$rij['co2'];
+    $tijd = !empty($rij['created_at']) ? date('H:i', strtotime($rij['created_at'])) : '';
     
-    // Filter 0-waardes en foute metingen er keihard uit
-    if ($t > 0 && $t <= 60) { 
+    // Filter alleen échte geldige metingen (geen 0 of uitval)
+    if ($t > -20 && $t <= 80 && $t != 0) { 
         $tempReeks[] = $t; 
-        $co2Reeks[] = ($c >= 300 && $c <= 5000) ? $c : 400; // Zorg dat co2 synchroon loopt qua aantal punten
-        $tijdReeks[] = !empty($rij['created_at']) ? date('H:i', strtotime($rij['created_at'])) : '';
+        $tijdTemp[]  = $tijd;
+    }
+    if ($c >= 300 && $c <= 5000) { 
+        $co2Reeks[] = $c; 
+        $tijdCo2[]  = $tijd;
     }
 }
 
 // Test de rook-weergave met dashBoard.php?demo=rook
 $rookGedetecteerd = (($_GET['demo'] ?? '') === 'rook');
 
-// ---------- 3. Bediening: toestand bewaren in melder_status.json ----------
-// Haal status op uit Neon database
+// ---------- 3. Bediening: status ophalen en verwerken ----------
 $stmtStatus = $pdo->query("SELECT melder, muziek FROM systeem_status WHERE id = 1");
 $staat = $stmtStatus->fetch(PDO::FETCH_ASSOC);
 if (!$staat) {
     $staat = ['melder' => true, 'muziek' => false];
 }
 
-// Als er op een knop in de dashboard is geklikt (POST):
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $melder = $staat['melder'];
     $muziek = $staat['muziek'];
@@ -88,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'melder_aan': $melder = true; break;
     }
     
-    // Sla de nieuwe status op in de database
     $updateStmt = $pdo->prepare("UPDATE systeem_status SET melder = :melder, muziek = :muziek WHERE id = 1");
     $updateStmt->execute(['melder' => $melder ? 1 : 0, 'muziek' => $muziek ? 1 : 0]);
     
@@ -130,8 +132,9 @@ function ico(string $n, string $extra = ''): string {
 function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?array $labels = null): string {
     $n = count($w);
     
+    // Nettere melding als er nog geen data in de tabel staat
     if ($n === 0) {
-        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen geldige metingen beschikbaar</div>';
+        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem; font-weight: 500;">Nog geen geldige metingen beschikbaar</div>';
     }
 
     $labels = $labels ?? [];
@@ -147,12 +150,10 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     $maxVal = max($w);
     $spreiding = $maxVal - $minVal;
 
-    // Slimme schaling per type eenheid
     if ($eenheid === ' °C') {
-        // Zorg voor een nette marge rondom de temperatuur
         $min = floor($minVal - 1.0);
         $max = ceil($maxVal + 1.0);
-        if ($max - $min < 3) { $max = $min + 3; } // Zorg voor minimaal 3 graden spreiding op de y-as
+        if ($max - $min < 3) { $max = $min + 3; }
     } else {
         $marge = max(30, $spreiding * 0.2);
         $min = floor(($minVal - $marge) / 10) * 10;
@@ -179,7 +180,6 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
     $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
     
-    // Teken exact 4 rasterlijnen met nette hele getallen of decimalen
     for ($k = 0; $k < 4; $k++) {
         $y = $T + ($H - $T - $Bo) * $k / 3; 
         $val = $max - ($max - $min) * $k / 3;
@@ -187,7 +187,6 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $labelVal . '</text>';
     }
 
-    // X-as labels netjes verdelen zonder dubbele "nu" meldingen
     $stapLabel = max(1, floor($n / 3));
     for ($i = 0; $i < $n; $i += $stapLabel) {
         $isLaatste = ($i >= $n - 2);
@@ -280,16 +279,16 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                 <section class="card chart-card">
                     <div class="chart-head">
                         <span class="tile"><?php echo ico('therm'); ?></span>
-                        <div><small>Temperatuur</small><strong><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
+                        <div><small>Temperatuur</small><strong><?php echo $huidigeTemp; ?></strong></div>
                     </div>
-                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdReeks); ?>
+                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdTemp); ?>
                 </section>
                 <section class="card chart-card">
                     <div class="chart-head">
                         <span class="tile blue"><?php echo ico('wind'); ?></span>
-                        <div><small>CO₂-gehalte</small><strong><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
+                        <div><small>CO₂-gehalte</small><strong><?php echo $huidigeCo2; ?></strong></div>
                     </div>
-                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c', $tijdReeks); ?>
+                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c', $tijdCo2); ?>
                 </section>
             </div>
 
@@ -387,10 +386,9 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                 if (nieuwePill && huidigePill) huidigePill.innerHTML = nieuwePill.innerHTML;
 
                 // 5. Update verbinding status (Online / Offline)
-            // 5. Update verbinding status (Online / Offline)
-            let nieuweVerbinding = doc.getElementById('verbinding-row');
-            let huidigeVerbinding = document.getElementById('verbinding-row');
-            if (nieuweVerbinding && huidigeVerbinding) huidigeVerbinding.innerHTML = nieuweVerbinding.innerHTML;
+                let nieuweVerbinding = doc.getElementById('verbinding-row');
+                let huidigeVerbinding = document.getElementById('verbinding-row');
+                if (nieuweVerbinding && huidigeVerbinding) huidigeVerbinding.innerHTML = nieuweVerbinding.innerHTML;
             
             } catch (error) {
                 console.error('Fout bij achtergrond-update:', error);
