@@ -404,8 +404,11 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         if (cancelBtn && dlg) dlg.close();
     });
 
-    let laatsteTemp = null;
-let laatsteCo2 = null;
+let laatsteTemp =
+    document.getElementById('temp-waarde')?.textContent;
+
+let laatsteCo2 =
+    document.getElementById('co2-waarde')?.textContent;
 
 setInterval(async () => {
 
@@ -445,9 +448,16 @@ setInterval(async () => {
             doc.getElementById('co2-waarde')?.textContent;
 
         const verandering =
-            nieuweTempWaarde !== laatsteTemp ||
-            nieuweCo2Waarde !== laatsteCo2;
+            nieuweTempWaarde.trim() !== laatsteTemp.trim() ||
+            nieuweCo2Waarde.trim() !== laatsteCo2.trim();
 
+        console.log(
+            'Temp oud:',
+            laatsteTemp,
+            'Temp nieuw:',
+            nieuweTempWaarde
+        );
+        
         if (verandering) {
 
             laatsteTemp = nieuweTempWaarde;
