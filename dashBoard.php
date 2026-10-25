@@ -17,7 +17,7 @@ try {
     die("Databaseverbinding mislukt: " . $e->getMessage());
 }
 
-$stmt = $pdo->query("SELECT temperatuur, co2, batterij, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data ORDER BY created_at DESC LIMIT 1");
+$stmt = $pdo->query("SELECT temperatuur, co2, batterij, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data WHERE co2 >= 300 AND temperatuur <> 0 ORDER BY created_at DESC LIMIT 1");
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if ($laatsteData) {
@@ -32,22 +32,29 @@ if ($laatsteData) {
     $laatsteUpdate = date('H:i');
 }
 
-$stmtReeks = $pdo->query("SELECT temperatuur, co2, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data ORDER BY created_at ASC");
-$historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
+// Grafiekdata: laatste 24 uur, gemiddeld per tijdsblok (netjes verdeelde assen, geen uitschieters)
+// Rijen zonder echte meting (CO2 = 0 of temperatuur = 0) worden overgeslagen.
+$filter = "created_at::timestamptz >= now() - interval '24 hours' AND co2 >= 300 AND temperatuur <> 0";
+$spanMin = (float)($pdo->query("SELECT COALESCE(EXTRACT(EPOCH FROM (max(created_at::timestamptz) - min(created_at::timestamptz))) / 60, 0)
+                                FROM sensor_data WHERE $filter")->fetchColumn());
+$blok = $spanMin <= 90 ? 120 : ($spanMin <= 360 ? 600 : 1800);   // seconden per punt
+
+$historie = $pdo->query("SELECT floor(EXTRACT(EPOCH FROM created_at::timestamptz) / $blok) * $blok AS blok,
+                                AVG(temperatuur) AS t, AVG(co2) AS c
+                         FROM sensor_data WHERE $filter
+                         GROUP BY 1 ORDER BY 1")->fetchAll(PDO::FETCH_ASSOC);
 
 $tempReeks = [];
 $co2Reeks  = [];
 $tijdReeks = [];
 
 foreach ($historie as $rij) {
-    $t = (float)$rij['temperatuur'];
-    $c = (int)$rij['co2'];
-    
-    if ($t >= -10 && $t <= 60) { $tempReeks[] = $t; }
-    if ($c >= 200 && $c <= 5000) { $co2Reeks[] = $c; }
-    
-    // Vul de tijdreeks met uur:minuut
-    $tijdReeks[] = !empty($rij['lokaal']) ? date('H:i', strtotime($rij['lokaal'])) : '';
+    $t = round((float)$rij['t'], 1);
+    $c = (int)round((float)$rij['c']);
+    if ($t < -10 || $t > 60 || $c > 5000) { continue; }
+    $tempReeks[] = $t;
+    $co2Reeks[]  = $c;
+    $tijdReeks[] = date('H:i', (int)$rij['blok']);
 }
 
 // Test de alarm-weergave met dashBoard.php?demo=rook
@@ -166,64 +173,69 @@ function ico(string $n, string $extra = ''): string {
     return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
 }
 
+// Kiest een "mooie" schaal: ronde stappen (1, 2, 5, 10, ...) zodat de as gelijkmatig is verdeeld
+function mooieSchaal(float $minV, float $maxV, int $doel = 3): array {
+    $bereik = $maxV - $minV;
+    if ($bereik < 1e-9) {
+        $bereik = max(abs($maxV) * 0.1, 1.0);
+        $minV -= $bereik / 2; $maxV += $bereik / 2;
+    }
+    $minV -= $bereik * 0.1; $maxV += $bereik * 0.1;      // kleine marge boven en onder
+    $ruw  = ($maxV - $minV) / $doel;
+    $mag  = pow(10, floor(log10($ruw)));
+    $norm = $ruw / $mag;
+    $stap = ($norm <= 1 ? 1 : ($norm <= 2 ? 2 : ($norm <= 5 ? 5 : 10))) * $mag;
+    return [floor($minV / $stap) * $stap, ceil($maxV / $stap) * $stap, $stap];
+}
+
 function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?array $labels = null): string {
     $n = count($w);
-    
+
     if ($n === 0) {
         return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen metingen beschikbaar</div>';
     }
 
     $labels = $labels ?? [];
     $B = 420; $H = 190; $L = 40; $R = 12; $T = 14; $Bo = 26;
-    
+
     if ($n === 1) {
         $w = [$w[0], $w[0]];
-        if (!empty($labels)) {
-            $labels = [$labels[0], $labels[0]];
-        }
+        if (!empty($labels)) { $labels = [$labels[0], $labels[0]]; }
         $n = 2;
     }
 
-    $minVal = min($w);
-    $maxVal = max($w);
-
-    $min = floor($minVal - ($maxVal - $minVal) * 0.15);
-    $max = ceil($maxVal + ($maxVal - $minVal) * 0.15);
-
-    if ($max == $min) { 
-        $max = $min + 5; 
-        $min = max(0, $min - 5);
-    }
-
+    [$min, $max, $stap] = mooieSchaal((float)min($w), (float)max($w));
     if ($eenheid === ' ppm' && $min < 0) { $min = 0; }
+    if ($max <= $min) { $max = $min + $stap; }
 
     $xy = [];
     foreach ($w as $i => $v) {
         $xy[] = [$L + ($B - $L - $R) * $i / ($n - 1), $T + ($H - $T - $Bo) * (1 - ($v - $min) / ($max - $min))];
     }
-    
+
     $d = 'M' . round($xy[0][0], 1) . ',' . round($xy[0][1], 1);
     for ($i = 1; $i < $n; $i++) {
         $cx = ($xy[$i - 1][0] + $xy[$i][0]) / 2;
         $d .= ' C' . round($cx, 1) . ',' . round($xy[$i - 1][1], 1) . ' ' . round($cx, 1) . ',' . round($xy[$i][1], 1) . ' ' . round($xy[$i][0], 1) . ',' . round($xy[$i][1], 1);
     }
-    
+
     $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
     $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
-    
-    for ($k = 0; $k < 4; $k++) {
-        $y = $T + ($H - $T - $Bo) * $k / 3; 
-        $val = round($max - ($max - $min) * $k / 3);
-        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
+
+    // Y-as: gelijke stappen van min tot max
+    $aantal = max(1, (int)round(($max - $min) / $stap));
+    $dec = $stap < 1 ? 1 : 0;
+    for ($k = 0; $k <= $aantal; $k++) {
+        $val = $max - $k * $stap;
+        $y = $T + ($H - $T - $Bo) * $k / $aantal;
+        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . number_format($val, $dec, '.', '') . '</text>';
     }
 
-    $stapLabel = max(1, floor($n / 4));
-    for ($i = 0; $i < $n; $i += $stapLabel) {
-        if (!empty($labels) && isset($labels[$i])) {
-            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : $labels[$i];
-        } else {
-            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : ('punt ' . ($i + 1));
-        }
+    // X-as: 5 gelijk verdeelde labels, laatste = "nu"
+    $aantalLabels = min($n, 5);
+    for ($k = 0; $k < $aantalLabels; $k++) {
+        $i = $aantalLabels === 1 ? 0 : (int)round($k * ($n - 1) / ($aantalLabels - 1));
+        $label = ($i === $n - 1) ? 'nu' : ($labels[$i] ?? '');
         $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
     }
 
@@ -309,7 +321,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
             </div>
 
             <!-- METINGEN -->
-            <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste metingen uit database</span></div>
+            <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste 24 uur · gemiddelde per <?php echo (int)($blok / 60); ?> min</span></div>
             <div class="chart-grid">
                 <section class="card chart-card">
                     <div class="chart-head">
