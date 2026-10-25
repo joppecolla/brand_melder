@@ -145,16 +145,31 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
 
     $minVal = min($w);
     $maxVal = max($w);
+    $spreiding = $maxVal - $minVal;
 
-    $min = floor($minVal - ($maxVal - $minVal) * 0.15);
-    $max = ceil($maxVal + ($maxVal - $minVal) * 0.15);
-
-    if ($max == $min) { 
-        $max = $min + 5; 
-        $min = max(0, $min - 5);
+    // Slimmere en vastere schaling per type eenheid om scherpe jumps te voorkomen
+    if ($eenheid === ' °C') {
+        // Voor temperatuur: zorg voor een stabiele marge van minstens 1.5 tot 2 graden rondom de data
+        if ($spreiding < 2.0) {
+            $centrum = ($minVal + $maxVal) / 2;
+            $min = floor($centrum - 1.0);
+            $max = ceil($centrum + 1.0);
+        } else {
+            $min = floor($minVal - 0.5);
+            $max = ceil($maxVal + 0.5);
+        }
+    } else {
+        // Voor CO2: zorg voor een nette marge boven en onder de metingen
+        $marge = max(30, $spreiding * 0.2);
+        $min = floor(($minVal - $marge) / 10) * 10;
+        $max = ceil(($maxVal + $marge) / 10) * 10;
+        if ($min < 300) { $min = 300; } // CO2 kan nooit onder de buitenluchtwaarde zakken
     }
 
-    if ($eenheid === ' ppm' && $min < 0) { $min = 0; }
+    if ($max == $min) { 
+        $max = $min + 4; 
+        $min = max(0, $min - 4);
+    }
 
     $xy = [];
     foreach ($w as $i => $v) {
@@ -172,8 +187,9 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     
     for ($k = 0; $k < 4; $k++) {
         $y = $T + ($H - $T - $Bo) * $k / 3; 
-        $val = round($max - ($max - $min) * $k / 3);
-        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $val . '</text>';
+        $val = $max - ($max - $min) * $k / 3;
+        $labelVal = ($eenheid === ' °C') ? number_format($val, 1, ',', '') : round($val);
+        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $labelVal . '</text>';
     }
 
     $stapLabel = max(1, floor($n / 4));
