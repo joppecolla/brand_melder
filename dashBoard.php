@@ -45,6 +45,7 @@ if ($laatsteData) {
     $laatsteUpdate = date('H:i');
 }
 
+// Haal de historische data op en filter direct onlogische/0-waardes eruit
 $stmtReeks = $pdo->query("SELECT temperatuur, co2, created_at FROM sensor_data ORDER BY created_at ASC");
 $historie = $stmtReeks->fetchAll(PDO::FETCH_ASSOC);
 
@@ -56,11 +57,12 @@ foreach ($historie as $rij) {
     $t = (float)$rij['temperatuur'];
     $c = (int)$rij['co2'];
     
-    if ($t >= -10 && $t <= 60) { $tempReeks[] = $t; }
-    if ($c >= 200 && $c <= 5000) { $co2Reeks[] = $c; }
-    
-    // Vul de tijdreeks met uur:minuut
-    $tijdReeks[] = !empty($rij['created_at']) ? date('H:i', strtotime($rij['created_at'])) : '';
+    // Filter 0-waardes en foute metingen er keihard uit
+    if ($t > 0 && $t <= 60) { 
+        $tempReeks[] = $t; 
+        $co2Reeks[] = ($c >= 300 && $c <= 5000) ? $c : 400; // Zorg dat co2 synchroon loopt qua aantal punten
+        $tijdReeks[] = !empty($rij['created_at']) ? date('H:i', strtotime($rij['created_at'])) : '';
+    }
 }
 
 // Test de rook-weergave met dashBoard.php?demo=rook
@@ -129,7 +131,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     $n = count($w);
     
     if ($n === 0) {
-        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen metingen beschikbaar</div>';
+        return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen geldige metingen beschikbaar</div>';
     }
 
     $labels = $labels ?? [];
@@ -137,9 +139,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     
     if ($n === 1) {
         $w = [$w[0], $w[0]];
-        if (!empty($labels)) {
-            $labels = [$labels[0], $labels[0]];
-        }
+        if (!empty($labels)) { $labels = [$labels[0], $labels[0]]; }
         $n = 2;
     }
 
@@ -147,23 +147,17 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     $maxVal = max($w);
     $spreiding = $maxVal - $minVal;
 
-    // Slimmere en vastere schaling per type eenheid om scherpe jumps te voorkomen
+    // Slimme schaling per type eenheid
     if ($eenheid === ' °C') {
-        // Voor temperatuur: zorg voor een stabiele marge van minstens 1.5 tot 2 graden rondom de data
-        if ($spreiding < 2.0) {
-            $centrum = ($minVal + $maxVal) / 2;
-            $min = floor($centrum - 1.0);
-            $max = ceil($centrum + 1.0);
-        } else {
-            $min = floor($minVal - 0.5);
-            $max = ceil($maxVal + 0.5);
-        }
+        // Zorg voor een nette marge rondom de temperatuur
+        $min = floor($minVal - 1.0);
+        $max = ceil($maxVal + 1.0);
+        if ($max - $min < 3) { $max = $min + 3; } // Zorg voor minimaal 3 graden spreiding op de y-as
     } else {
-        // Voor CO2: zorg voor een nette marge boven en onder de metingen
         $marge = max(30, $spreiding * 0.2);
         $min = floor(($minVal - $marge) / 10) * 10;
         $max = ceil(($maxVal + $marge) / 10) * 10;
-        if ($min < 300) { $min = 300; } // CO2 kan nooit onder de buitenluchtwaarde zakken
+        if ($min < 300) { $min = 300; }
     }
 
     if ($max == $min) { 
@@ -185,6 +179,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
     $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
     
+    // Teken exact 4 rasterlijnen met nette hele getallen of decimalen
     for ($k = 0; $k < 4; $k++) {
         $y = $T + ($H - $T - $Bo) * $k / 3; 
         $val = $max - ($max - $min) * $k / 3;
@@ -192,13 +187,11 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . $labelVal . '</text>';
     }
 
-    $stapLabel = max(1, floor($n / 4));
+    // X-as labels netjes verdelen zonder dubbele "nu" meldingen
+    $stapLabel = max(1, floor($n / 3));
     for ($i = 0; $i < $n; $i += $stapLabel) {
-        if (!empty($labels) && isset($labels[$i])) {
-            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : $labels[$i];
-        } else {
-            $label = ($i === $n - 1 || $i >= $n - 2) ? 'nu' : ('punt ' . ($i + 1));
-        }
+        $isLaatste = ($i >= $n - 2);
+        $label = $isLaatste ? 'nu' : ($labels[$i] ?? '');
         $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
     }
 
