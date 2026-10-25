@@ -10,7 +10,7 @@ $port = getenv('NEON_PORT') ?: '5432';
 
 try {
     $pdo = new PDO("pgsql:host=$host;port=$port;dbname=$db;sslmode=require", $user, $pass,
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => true]);
 } catch (PDOException $e) {
     error_log('api.php database: ' . $e->getMessage());
     http_response_code(500);
@@ -37,9 +37,11 @@ if (!is_array($in)) {
     exit;
 }
 
+$stap = 'start';
 try {
-    $pdo->beginTransaction();
-    $old = $pdo->query("SELECT * FROM melder_status WHERE id = 1 FOR UPDATE")->fetch(PDO::FETCH_ASSOC);
+    $stap = 'melder_status lezen';
+    $old = $pdo->query("SELECT * FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+    if (!$old) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
 
     $status      = (($in['status'] ?? 'online') === 'lokaal') ? 'lokaal' : 'online';
     $apparaatAan = array_key_exists('melder_aan', $in) ? (bool)$in['melder_aan'] : pgBool($old['apparaat_aan']);
@@ -50,12 +52,14 @@ try {
     // Meting opslaan (een ping bevat geen meetwaarden)
     $heeftMeting = isset($in['temperatuur'], $in['co2']) && is_numeric($in['temperatuur']) && is_numeric($in['co2']);
     if ($heeftMeting) {
+        $stap = 'meting opslaan';
         $pdo->prepare("INSERT INTO sensor_data (temperatuur, co2, batterij, alarm, gedempt) VALUES (?, ?, ?, CAST(? AS boolean), CAST(? AS boolean))")
             ->execute([(float)$in['temperatuur'], (int)$in['co2'], (int)($in['batterij'] ?? 100),
                        $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false']);
     }
 
     // Meldingen aanmaken bij veranderingen
+    $stap = 'meldingen opslaan';
     $oudAlarm = pgBool($old['alarm_actief']);
     if ($alarm && !$oudAlarm) {
         if ($reden === 'co2')              $tekst = 'CO₂ te hoog' . ($heeftMeting ? ': ' . (int)$in['co2'] . ' ppm' : '');
@@ -78,17 +82,16 @@ try {
         meld($pdo, $apparaatAan ? 'Melder ingeschakeld' : 'Melder uitgeschakeld', 'info');
     }
 
+    $stap = 'melder_status bijwerken';
     $pdo->prepare("UPDATE melder_status SET laatste_contact = now(), apparaat_modus = ?, apparaat_aan = CAST(? AS boolean),
                    alarm_actief = CAST(? AS boolean), alarm_gedempt = CAST(? AS boolean), alarm_reden = ? WHERE id = 1")
         ->execute([$status, $apparaatAan ? 'true' : 'false', $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
 
-    $pdo->commit();
 
     // Antwoord: wat jij op het dashboard hebt ingesteld
     echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek'])]);
 } catch (Throwable $e) {
-    if ($pdo->inTransaction()) $pdo->rollBack();
-    error_log('api.php server: ' . $e->getMessage());
+    error_log('api.php server (' . $stap . '): ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+    echo json_encode(['ok' => false, 'fout' => 'server', 'stap' => $stap, 'detail' => $e->getMessage()]);
 }
