@@ -323,14 +323,14 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
             <!-- METINGEN -->
             <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste 24 uur · gemiddelde per <?php echo (int)($blok / 60); ?> min</span></div>
             <div class="chart-grid">
-                <section class="card chart-card">
+                <section class="card chart-card" id="temp-chart">
                     <div class="chart-head">
                         <span class="tile"><?php echo ico('therm'); ?></span>
                         <div><small>Temperatuur</small><strong id="temp-waarde"><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
                     </div>
                     <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdReeks); ?>
                 </section>
-                <section class="card chart-card">
+                <section class="card chart-card" id="co2-chart">
                     <div class="chart-head">
                         <span class="tile blue"><?php echo ico('wind'); ?></span>
                         <div><small>CO₂-gehalte</small><strong id="co2-waarde"><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
@@ -395,38 +395,116 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     </main>
 
     <script>
-        // Event delegation voor het bevestigingsvenster
-        document.addEventListener('click', (e) => {
-            const openBtn = e.target.closest('#openBevestiging');
-            const cancelBtn = e.target.closest('#annuleer');
-            const dlg = document.getElementById('bevestiging');
-
-            if (openBtn && dlg) dlg.showModal();
-            if (cancelBtn && dlg) dlg.close();
-        });
-
-        // Ververs live onderdelen op de achtergrond (zonder grafiek-flicker)
-        const syncIds = ['alarm-wrap', 'live-pill', 'status-hero', 'systeem-card', 'temp-waarde', 'co2-waarde', 'meldingen-card', 'bediening-card'];
-
-        setInterval(async () => {
-            try {
-                const url = window.location.href.split('?')[0] + '?t=' + Date.now();
-                const response = await fetch(url, { cache: 'no-store' });
-                const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-                const dialoogOpen = document.getElementById('bevestiging')?.open;
-
-                for (const id of syncIds) {
-                    if (id === 'bediening-card' && dialoogOpen) continue;
-                    const nieuw = doc.getElementById(id);
-                    const huidig = document.getElementById(id);
-                    if (!nieuw || !huidig) continue;
-                    if (huidig.className !== nieuw.className) huidig.className = nieuw.className;
-                    if (huidig.innerHTML !== nieuw.innerHTML) huidig.innerHTML = nieuw.innerHTML;
+    document.addEventListener('click', (e) => {
+        const openBtn = e.target.closest('#openBevestiging');
+        const cancelBtn = e.target.closest('#annuleer');
+        const dlg = document.getElementById('bevestiging');
+    
+        if (openBtn && dlg) dlg.showModal();
+        if (cancelBtn && dlg) dlg.close();
+    });
+    
+    setInterval(async () => {
+        try {
+            const response = await fetch(
+                window.location.pathname + '?t=' + Date.now(),
+                {
+                    cache: 'no-store'
                 }
-            } catch (error) {
-                console.error('Fout bij achtergrond-update:', error);
+            );
+    
+            const html = await response.text();
+    
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(
+                html,
+                'text/html'
+            );
+    
+            // Temperatuurgrafiek volledig verversen
+            const nieuweTempChart =
+                doc.getElementById('temp-chart');
+    
+            const huidigeTempChart =
+                document.getElementById('temp-chart');
+    
+            if (
+                nieuweTempChart &&
+                huidigeTempChart
+            ) {
+                huidigeTempChart.innerHTML =
+                    nieuweTempChart.innerHTML;
             }
-        }, 10000); // Elke 10 seconden
+    
+            // CO2-grafiek volledig verversen
+            const nieuweCo2Chart =
+                doc.getElementById('co2-chart');
+    
+            const huidigeCo2Chart =
+                document.getElementById('co2-chart');
+    
+            if (
+                nieuweCo2Chart &&
+                huidigeCo2Chart
+            ) {
+                huidigeCo2Chart.innerHTML =
+                    nieuweCo2Chart.innerHTML;
+            }
+    
+            // Batterij updaten
+            const nieuweBat =
+                doc.querySelector(
+                    '.list-card .row:nth-child(2)'
+                );
+    
+            const huidigeBat =
+                document.querySelector(
+                    '.list-card .row:nth-child(2)'
+                );
+    
+            if (nieuweBat && huidigeBat) {
+                huidigeBat.innerHTML =
+                    nieuweBat.innerHTML;
+            }
+    
+            // Tijd updaten
+            const nieuwePill =
+                doc.querySelector('.live-pill');
+    
+            const huidigePill =
+                document.querySelector('.live-pill');
+    
+            if (nieuwePill && huidigePill) {
+                huidigePill.innerHTML =
+                    nieuwePill.innerHTML;
+            }
+    
+            // Verbindingsstatus updaten
+            const nieuweVerbinding =
+                doc.getElementById(
+                    'verbinding-row'
+                );
+    
+            const huidigeVerbinding =
+                document.getElementById(
+                    'verbinding-row'
+                );
+    
+            if (
+                nieuweVerbinding &&
+                huidigeVerbinding
+            ) {
+                huidigeVerbinding.innerHTML =
+                    nieuweVerbinding.innerHTML;
+            }
+    
+        } catch (error) {
+            console.error(
+                'Fout bij achtergrond-update:',
+                error
+            );
+        }
+    }, 10000);
     </script>
 
     <footer class="footer">
