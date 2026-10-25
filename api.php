@@ -12,8 +12,9 @@ try {
     $pdo = new PDO("pgsql:host=$host;port=$port;dbname=$db;sslmode=require", $user, $pass,
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 } catch (PDOException $e) {
+    error_log('api.php database: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'fout' => 'database']);
+    echo json_encode(['ok' => false, 'fout' => 'database', 'detail' => getenv('API_DEBUG') ? $e->getMessage() : null]);
     exit;
 }
 
@@ -49,7 +50,7 @@ try {
     // Meting opslaan (een ping bevat geen meetwaarden)
     $heeftMeting = isset($in['temperatuur'], $in['co2']) && is_numeric($in['temperatuur']) && is_numeric($in['co2']);
     if ($heeftMeting) {
-        $pdo->prepare("INSERT INTO sensor_data (temperatuur, co2, batterij, alarm, gedempt) VALUES (?, ?, ?, ?, ?)")
+        $pdo->prepare("INSERT INTO sensor_data (temperatuur, co2, batterij, alarm, gedempt) VALUES (?, ?, ?, CAST(? AS boolean), CAST(? AS boolean))")
             ->execute([(float)$in['temperatuur'], (int)$in['co2'], (int)($in['batterij'] ?? 100),
                        $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false']);
     }
@@ -77,8 +78,8 @@ try {
         meld($pdo, $apparaatAan ? 'Melder ingeschakeld' : 'Melder uitgeschakeld', 'info');
     }
 
-    $pdo->prepare("UPDATE melder_status SET laatste_contact = now(), apparaat_modus = ?, apparaat_aan = ?,
-                   alarm_actief = ?, alarm_gedempt = ?, alarm_reden = ? WHERE id = 1")
+    $pdo->prepare("UPDATE melder_status SET laatste_contact = now(), apparaat_modus = ?, apparaat_aan = CAST(? AS boolean),
+                   alarm_actief = CAST(? AS boolean), alarm_gedempt = CAST(? AS boolean), alarm_reden = ? WHERE id = 1")
         ->execute([$status, $apparaatAan ? 'true' : 'false', $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
 
     $pdo->commit();
@@ -87,6 +88,7 @@ try {
     echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek'])]);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
+    error_log('api.php server: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['ok' => false, 'fout' => 'server']);
+    echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
 }
