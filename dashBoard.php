@@ -403,7 +403,10 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         if (openBtn && dlg) dlg.showModal();
         if (cancelBtn && dlg) dlg.close();
     });
-    
+
+    let laatsteTemp = null;
+    let laatsteCo2 = null;
+        
     setInterval(async () => {
         try {
             const response = await fetch(
@@ -422,46 +425,28 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
             );
     
             // Temperatuurgrafiek volledig verversen
-            const nieuweTempChart =
-                doc.getElementById('temp-chart');
-    
-            const huidigeTempChart =
-                document.getElementById('temp-chart');
-    
-            if (
-                nieuweTempChart &&
-                huidigeTempChart
-            ) {
-                huidigeTempChart.style.opacity = "0.7";
-            
-                setTimeout(() => {
-                    huidigeTempChart.innerHTML =
-                        nieuweTempChart.innerHTML;
-            
-                    huidigeTempChart.style.opacity = "1";
-                }, 100);
-            }
-    
-            // CO2-grafiek volledig verversen
-            const nieuweCo2Chart =
-                doc.getElementById('co2-chart');
-    
-            const huidigeCo2Chart =
-                document.getElementById('co2-chart');
-    
-            if (
-                nieuweCo2Chart &&
-                huidigeCo2Chart
-            ) {
-                huidigeCo2Chart.style.opacity = "0.7";
-            
-                setTimeout(() => {
-                    huidigeCo2Chart.innerHTML =
-                        nieuweCo2Chart.innerHTML;
-            
-                    huidigeCo2Chart.style.opacity = "1";
-                }, 100);
-            }
+            const nieuweTempWaarde =
+            doc.getElementById('temp-waarde')?.textContent;
+        
+        const nieuweCo2Waarde =
+            doc.getElementById('co2-waarde')?.textContent;
+        
+        const verandering =
+            nieuweTempWaarde !== laatsteTemp ||
+            nieuweCo2Waarde !== laatsteCo2;
+        
+        if (verandering) {
+        
+            laatsteTemp = nieuweTempWaarde;
+            laatsteCo2 = nieuweCo2Waarde;
+        
+            huidigeTempChart.innerHTML =
+                nieuweTempChart.innerHTML;
+        
+            huidigeCo2Chart.innerHTML =
+                nieuweCo2Chart.innerHTML;
+        }
+
     
             // Batterij updaten
             const nieuweBat =
