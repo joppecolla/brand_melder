@@ -432,8 +432,14 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                 nieuweTempChart &&
                 huidigeTempChart
             ) {
-                huidigeTempChart.innerHTML =
-                    nieuweTempChart.innerHTML;
+                huidigeTempChart.style.opacity = "0.7";
+            
+                setTimeout(() => {
+                    huidigeTempChart.innerHTML =
+                        nieuweTempChart.innerHTML;
+            
+                    huidigeTempChart.style.opacity = "1";
+                }, 100);
             }
     
             // CO2-grafiek volledig verversen
@@ -447,8 +453,14 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                 nieuweCo2Chart &&
                 huidigeCo2Chart
             ) {
-                huidigeCo2Chart.innerHTML =
-                    nieuweCo2Chart.innerHTML;
+                huidigeCo2Chart.style.opacity = "0.7";
+            
+                setTimeout(() => {
+                    huidigeCo2Chart.innerHTML =
+                        nieuweCo2Chart.innerHTML;
+            
+                    huidigeCo2Chart.style.opacity = "1";
+                }, 100);
             }
     
             // Batterij updaten
