@@ -170,8 +170,7 @@ function ico(string $n, string $extra = ''): string {
         'alert' => '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01"/>',
         'chev' => '<path d="m9 18 6-6-6-6"/>',
     ];
-    return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
-}
+return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g transform="rotate(0 12 12)">' . $p[$n] . '</g></svg>';}
 
 function mooieSchaal(float $minV, float $maxV, int $doel = 3): array {
     $bereik = $maxV - $minV;
