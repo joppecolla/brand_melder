@@ -1,5 +1,5 @@
 <?php
-// Verberg eventuele runtime warnings in productie (optioneel, maar houdt het scherm schoon)
+// Verberg eventuele runtime warnings in productie
 error_reporting(E_ALL & ~E_WARNING & ~E_DEPRECATED);
 date_default_timezone_set('Europe/Brussels');
 
@@ -153,10 +153,10 @@ foreach ($rijen as $r) {
 }
 if ($demoAlarm) { array_unshift($meldingen, ['Demo-alarm', date('H:i') . ' - Vandaag', 'alarm']); }
 
-// RECHTGEZET VLAM-ICOON (flame)
+// ECHT MOOI EN STRAK VLAM-ICOON (flame)
 function ico(string $n, string $extra = ''): string {
     $p = [
-        'flame' => '<path d="M12 2c0 3.5-3 6.5-3 9.5 0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5c0-3.5-3-6-3-9.5-2 2-3 4-5 0z"/><path d="M12 22c-4.42 0-8-3.58-8-8 0-3.1 1.76-5.8 4.35-7.15C8.1 7.42 8 7.95 8 8.5c0 2.49 1.51 4.63 3.66 5.57-.42-.89-.66-1.88-.66-2.93 0-2.3 1.25-4.31 3.12-5.4 1.54 1.8 2.88 3.86 2.88 6.26 0 3.87-3.13 7-7 7z"/>',
+        'flame' => '<path d="M12 2c0 4-2.5 6-3.5 8.5C7.2 13.2 7 14.8 7 16.5a5 5 0 0 0 10 0c0-1.7-.2-3.3-1.5-6C14.5 8 12 6 12 2z"/><path d="M12 22a3.5 3.5 0 0 1-3.5-3.5c0-1.5 1-2.8 2-3.8.5-.5 1.5-1.7 1.5-3.2 0 1.5 1 2.7 1.5 3.2 1 1 2 2.3 2 3.8A3.5 3.5 0 0 1 12 22z"/>',
         'shield' => '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
         'battery' => '<rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/><path d="M6 11v2M10 11v2"/>',
         'wifi' => '<path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/>',
@@ -267,7 +267,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     <?php if ($niveau === 'alarm') { ?>
         <div class="alarm-bar" style="background-color: #e63946; color: white; padding: 14px 24px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 1.05rem; box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);">
             <?php echo ico('alert', 'white-ico'); ?>
-            <span><strong>ALARM DITECTIE:</strong> <?php echo htmlspecialchars($alarmDetail); ?>. Controleer de ruimte en verlaat het gebouw bij brand!</span>
+            <span><strong>ALARM DETECTIE:</strong> <?php echo htmlspecialchars($alarmDetail); ?>. Controleer de ruimte en verlaat het gebouw bij brand!</span>
         </div>
     <?php } ?>
     </div>
@@ -428,7 +428,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                 huidigeStatusHero.innerHTML = nieuweStatusHero.innerHTML;
             }
 
-            // 3. Update Systeem Card Rows
+            // 3. Update Systeem Card Rows & Grafieken
             const elementenToUpdate = ['status-row', 'batterij-row', 'verbinding-row', 'temp-chart', 'co2-chart', 'live-pill', 'meldingen-card'];
             elementenToUpdate.forEach(id => {
                 const nieuwEl = doc.getElementById(id);
@@ -441,7 +441,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         } catch (error) {
             console.error('Fout bij achtergrond-update:', error);
         }
-    }, 5000); // Checkt elke 5 seconden geruisloos op de achtergrond
+    }, 5000);
     </script>
 
     <footer class="footer">
