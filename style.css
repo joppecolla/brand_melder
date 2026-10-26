@@ -1107,3 +1107,17 @@ img {
 #co2-chart {
     transition: opacity 0.25s ease-in-out;
 }
+
+
+/* Correctie: vlam rechtop in het midden van de meter */
+.gauge-core {
+    transform: none;
+}
+
+.gauge-core .ico {
+    width: 62px;
+    height: 62px;
+    transform: rotate(0deg);
+    transform-origin: center;
+}
+
