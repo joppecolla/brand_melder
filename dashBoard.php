@@ -32,8 +32,7 @@ if ($laatsteData) {
     $laatsteUpdate = date('H:i');
 }
 
-// Grafiekdata: laatste 24 uur, gemiddeld per tijdsblok (netjes verdeelde assen, geen uitschieters)
-// Rijen zonder echte meting (CO2 = 0 of temperatuur = 0) worden overgeslagen.
+// Grafiekdata: laatste 24 uur, gemiddeld per tijdsblok
 $filter = "created_at::timestamptz >= now() - interval '24 hours' AND co2 >= 300 AND temperatuur <> 0";
 $spanMin = (float)($pdo->query("SELECT COALESCE(EXTRACT(EPOCH FROM (max(created_at::timestamptz) - min(created_at::timestamptz))) / 60, 0)
                                 FROM sensor_data WHERE $filter")->fetchColumn());
@@ -65,7 +64,7 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
     $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
 }
 
-// ---------- 3. Bediening: wensen worden in de database bewaard, de melder haalt ze op ----------
+// ---------- 3. Bediening: wensen worden in de database bewaard ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     switch ($_POST['actie'] ?? '') {
         case 'muziek_aan':
@@ -126,9 +125,9 @@ elseif ($reden === 'temperatuur')  { $alarmDetail = 'Temperatuur te hoog: ' . ro
 elseif ($reden === 'handmatig')    { $alarmDetail = 'Handmatig alarm op de melder'; }
 else                               { $alarmDetail = 'Alarm op de melder'; }
 if ($gedempt) { $alarmDetail .= ' (buzzer gedempt op de melder)'; }
-if ($demoAlarm) { $alarmDetail = 'Demo-alarm'; }
+if ($demoAlarm) { $alarmDetail = 'Demo-alarm (Rook gedetecteerd)'; }
 
-// Status: "Actief & Veilig" alleen als de melder dat zelf recent heeft doorgegeven
+// Status bepaling
 if ($demoAlarm)           { $niveau = 'alarm'; $systeemStatus = 'Alarm';             $titel = 'Alarm!';               $sub = $alarmDetail . '.'; }
 elseif ($lokaal)          { $niveau = 'uit';   $systeemStatus = 'Lokale modus';      $titel = 'Melder in lokale modus'; $sub = 'De melder is op het apparaat offline gezet. Hij stuurt geen gegevens door, dus de status is onbekend.'; }
 elseif (!$contactVers)    { $niveau = 'uit';   $systeemStatus = 'Geen verbinding';   $titel = 'Melder offline';       $sub = $seconden === null ? 'Er is nog nooit contact geweest met de melder.' : 'Er is geen signaal van de melder. De status is onbekend.'; }
@@ -144,7 +143,7 @@ elseif ($wijzigingBezig)   { $melderTekst = 'Wijziging wordt doorgegeven…'; }
 else                       { $melderTekst = $apparaatAan ? 'Actief en bewaakt' : 'Uitgeschakeld'; }
 $bedieningInfo = ($lokaal || !$contactVers) ? 'De melder is nu niet bereikbaar. Je keuze wordt toegepast zodra hij weer online is.' : '';
 
-// Recente meldingen uit de database
+// Recente meldingen
 $meldingen = [];
 foreach ($rijen as $r) {
     $t = strtotime($r['lokaal']);
@@ -154,9 +153,10 @@ foreach ($rijen as $r) {
 }
 if ($demoAlarm) { array_unshift($meldingen, ['Demo-alarm', date('H:i') . ' - Vandaag', 'alarm']); }
 
+// RECHTGEZET VLAM-ICOON (flame)
 function ico(string $n, string $extra = ''): string {
     $p = [
-        'flame' => '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+        'flame' => '<path d="M12 2c0 3.5-3 6.5-3 9.5 0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5c0-3.5-3-6-3-9.5-2 2-3 4-5 0z"/><path d="M12 22c-4.42 0-8-3.58-8-8 0-3.1 1.76-5.8 4.35-7.15C8.1 7.42 8 7.95 8 8.5c0 2.49 1.51 4.63 3.66 5.57-.42-.89-.66-1.88-.66-2.93 0-2.3 1.25-4.31 3.12-5.4 1.54 1.8 2.88 3.86 2.88 6.26 0 3.87-3.13 7-7 7z"/>',
         'shield' => '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
         'battery' => '<rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/><path d="M6 11v2M10 11v2"/>',
         'wifi' => '<path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/>',
@@ -173,14 +173,13 @@ function ico(string $n, string $extra = ''): string {
     return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
 }
 
-// Kiest een "mooie" schaal: ronde stappen (1, 2, 5, 10, ...) zodat de as gelijkmatig is verdeeld
 function mooieSchaal(float $minV, float $maxV, int $doel = 3): array {
     $bereik = $maxV - $minV;
     if ($bereik < 1e-9) {
         $bereik = max(abs($maxV) * 0.1, 1.0);
         $minV -= $bereik / 2; $maxV += $bereik / 2;
     }
-    $minV -= $bereik * 0.1; $maxV += $bereik * 0.1;      // kleine marge boven en onder
+    $minV -= $bereik * 0.1; $maxV += $bereik * 0.1;
     $ruw  = ($maxV - $minV) / $doel;
     $mag  = pow(10, floor(log10($ruw)));
     $norm = $ruw / $mag;
@@ -222,7 +221,6 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
     $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
     $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
 
-    // Y-as: gelijke stappen van min tot max
     $aantal = max(1, (int)round(($max - $min) / $stap));
     $dec = $stap < 1 ? 1 : 0;
     for ($k = 0; $k <= $aantal; $k++) {
@@ -231,7 +229,6 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . number_format($val, $dec, '.', '') . '</text>';
     }
 
-    // X-as: 5 gelijk verdeelde labels, laatste = "nu"
     $aantalLabels = min($n, 5);
     for ($k = 0; $k < $aantalLabels; $k++) {
         $i = $aantalLabels === 1 ? 0 : (int)round($k * ($n - 1) / ($aantalLabels - 1));
@@ -265,13 +262,17 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         </nav>
     </header>
 
-    <main class="dash-page">
-
-        <div id="alarm-wrap">
-        <?php if ($niveau === 'alarm') { ?>
-            <div class="alarm-bar"><?php echo ico('alert'); ?><strong>Alarm:</strong>&nbsp;<?php echo htmlspecialchars($alarmDetail); ?>. Controleer de ruimte en verlaat het gebouw bij brand.</div>
-        <?php } ?>
+    <!-- DUIDELIJKE ALARM MELDING BOVENAAN -->
+    <div id="alarm-wrap">
+    <?php if ($niveau === 'alarm') { ?>
+        <div class="alarm-bar" style="background-color: #e63946; color: white; padding: 14px 24px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 1.05rem; box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);">
+            <?php echo ico('alert', 'white-ico'); ?>
+            <span><strong>ALARM DITECTIE:</strong> <?php echo htmlspecialchars($alarmDetail); ?>. Controleer de ruimte en verlaat het gebouw bij brand!</span>
         </div>
+    <?php } ?>
+    </div>
+
+    <main class="dash-page">
 
         <!-- BANNER -->
         <section class="dash-banner">
@@ -301,12 +302,12 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
 
                 <section class="card list-card" id="systeem-card">
                     <h3 class="card-title">Systeem</h3>
-                    <div class="row">
+                    <div class="row" id="status-row">
                         <span class="tile <?php echo $niveau; ?>"><?php echo ico('shield'); ?></span>
                         <div><small>Status</small><strong class="txt-<?php echo $niveau; ?>"><?php echo $systeemStatus; ?></strong></div>
                         <?php echo ico('chev', 'chev'); ?>
                     </div>
-                    <div class="row">
+                    <div class="row" id="batterij-row">
                         <span class="tile"><?php echo ico('battery'); ?></span>
                         <div><small>Batterij</small><strong><?php echo $batterij; ?>%</strong>
                             <div class="bar"><i style="width:<?php echo $batterij; ?>%"></i></div></div>
@@ -394,6 +395,7 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         </dialog>
     </main>
 
+    <!-- AUTOMATISCHE ACHTERGROND REFRESH ZONDER FLIKKEREN -->
     <script>
     document.addEventListener('click', (e) => {
         const openBtn = e.target.closest('#openBevestiging');
@@ -404,133 +406,42 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         if (cancelBtn && dlg) dlg.close();
     });
 
-let laatsteTemp =
-    document.getElementById('temp-waarde')?.textContent;
+    setInterval(async () => {
+        try {
+            const response = await fetch(window.location.pathname + '?t=' + Date.now(), { cache: 'no-store' });
+            const html = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
 
-let laatsteCo2 =
-    document.getElementById('co2-waarde')?.textContent;
-
-setInterval(async () => {
-
-    try {
-
-        const response = await fetch(
-            window.location.pathname + '?t=' + Date.now(),
-            {
-                cache: 'no-store'
+            // 1. Update Alarm Banner Bovenaan
+            const nieuwAlarmWrap = doc.getElementById('alarm-wrap');
+            const huidigAlarmWrap = document.getElementById('alarm-wrap');
+            if (nieuwAlarmWrap && huidigAlarmWrap && nieuwAlarmWrap.innerHTML !== huidigAlarmWrap.innerHTML) {
+                huidigAlarmWrap.innerHTML = nieuwAlarmWrap.innerHTML;
             }
-        );
 
-        const html = await response.text();
-
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(
-            html,
-            'text/html'
-        );
-
-        const nieuweTempChart =
-            doc.getElementById('temp-chart');
-
-        const huidigeTempChart =
-            document.getElementById('temp-chart');
-
-        const nieuweCo2Chart =
-            doc.getElementById('co2-chart');
-
-        const huidigeCo2Chart =
-            document.getElementById('co2-chart');
-
-        const nieuweTempWaarde =
-            doc.getElementById('temp-waarde')?.textContent;
-
-        const nieuweCo2Waarde =
-            doc.getElementById('co2-waarde')?.textContent;
-
-        const verandering =
-            nieuweTempWaarde.trim() !== laatsteTemp.trim() ||
-            nieuweCo2Waarde.trim() !== laatsteCo2.trim();
-
-        console.log(
-            'Temp oud:',
-            laatsteTemp,
-            'Temp nieuw:',
-            nieuweTempWaarde
-        );
-
-        console.log(
-            'CO2 oud:',
-            laatsteCo2,
-            'CO2 nieuw:',
-            nieuweCo2Waarde
-        );
-        
-        if (verandering) {
-
-            laatsteTemp = nieuweTempWaarde;
-            laatsteCo2 = nieuweCo2Waarde;
-
-            huidigeTempChart.innerHTML =
-                nieuweTempChart.innerHTML;
-
-            huidigeCo2Chart.innerHTML =
-                nieuweCo2Chart.innerHTML;
-        }
-    
-            // Batterij updaten
-            const nieuweBat =
-                doc.querySelector(
-                    '.list-card .row:nth-child(2)'
-                );
-    
-            const huidigeBat =
-                document.querySelector(
-                    '.list-card .row:nth-child(2)'
-                );
-    
-            if (nieuweBat && huidigeBat) {
-                huidigeBat.innerHTML =
-                    nieuweBat.innerHTML;
+            // 2. Update Main Status Hero Card
+            const nieuweStatusHero = doc.getElementById('status-hero');
+            const huidigeStatusHero = document.getElementById('status-hero');
+            if (nieuweStatusHero && huidigeStatusHero && nieuweStatusHero.innerHTML !== huidigeStatusHero.innerHTML) {
+                huidigeStatusHero.className = nieuweStatusHero.className;
+                huidigeStatusHero.innerHTML = nieuweStatusHero.innerHTML;
             }
-    
-            // Tijd updaten
-            const nieuwePill =
-                doc.querySelector('.live-pill');
-    
-            const huidigePill =
-                document.querySelector('.live-pill');
-    
-            if (nieuwePill && huidigePill) {
-                huidigePill.innerHTML =
-                    nieuwePill.innerHTML;
-            }
-    
-            // Verbindingsstatus updaten
-            const nieuweVerbinding =
-                doc.getElementById(
-                    'verbinding-row'
-                );
-    
-            const huidigeVerbinding =
-                document.getElementById(
-                    'verbinding-row'
-                );
-    
-            if (
-                nieuweVerbinding &&
-                huidigeVerbinding
-            ) {
-                huidigeVerbinding.innerHTML =
-                    nieuweVerbinding.innerHTML;
-            }
-    
+
+            // 3. Update Systeem Card Rows
+            const elementenToUpdate = ['status-row', 'batterij-row', 'verbinding-row', 'temp-chart', 'co2-chart', 'live-pill', 'meldingen-card'];
+            elementenToUpdate.forEach(id => {
+                const nieuwEl = doc.getElementById(id);
+                const huidigEl = document.getElementById(id);
+                if (nieuwEl && huidigEl && nieuwEl.innerHTML !== huidigEl.innerHTML) {
+                    huidigEl.innerHTML = nieuwEl.innerHTML;
+                }
+            });
+
         } catch (error) {
-            console.error(
-                'Fout bij achtergrond-update:',
-                error
-            );
+            console.error('Fout bij achtergrond-update:', error);
         }
-    }, 10000);
+    }, 5000); // Checkt elke 5 seconden geruisloos op de achtergrond
     </script>
 
     <footer class="footer">
