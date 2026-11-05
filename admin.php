@@ -176,8 +176,8 @@ function ico(string $n, string $extra = ''): string {
 const devices = <?php echo json_encode($devices, JSON_UNESCAPED_UNICODE); ?>;
 const tijden  = <?php echo json_encode($tijden); ?>;
 
-// Alarmwaarde wordt voorlopig enkel in de browser bewaard (geen backend)
-let alarm = Number(localStorage.getItem('co2Alarm')) || <?php echo $beginAlarm; ?>;
+// Alarmwaarde wordt opgehaald uit de database via de API
+let alarm = <?php echo $beginAlarm; ?>;
 const namen = JSON.parse(localStorage.getItem('deviceNamen') || '{}');
 devices.forEach(d => { if (namen[d.id]) d.naam = namen[d.id]; });
 const esc = t => String(t).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -196,14 +196,70 @@ function toonAlarm() {
 function toonMelding(tekst, fout) {
     melding.textContent = tekst; melding.classList.toggle('fout', !!fout); melding.hidden = false;
 }
-document.getElementById('alarmForm').addEventListener('submit', e => {
+async function laadAlarm() {
+    try {
+        const response = await fetch('api.php', {
+            method: 'GET',
+            cache: 'no-store'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+            throw new Error('Ophalen mislukt');
+        }
+
+        const waarde = Number(data.co2_alarm_threshold);
+
+        if (!Number.isInteger(waarde) || waarde < 1 || waarde > 5000) {
+            throw new Error('Ongeldige alarmwaarde ontvangen');
+        }
+
+        alarm = waarde;
+        toonAlarm();
+
+    } catch (error) {
+        toonMelding('Kon alarmwaarde niet ophalen uit de database.', true);
+    }
+}
+document.getElementById('alarmForm').addEventListener('submit', async e => {
     e.preventDefault();
+
     const w = Number(invoer.value);
-    if (!(w > 0)) { toonMelding('Geef een geldige waarde in ppm in.', true); return; }
-    alarm = Math.round(w);
-    localStorage.setItem('co2Alarm', alarm);
-    toonAlarm();
-    toonMelding(`Alarmwaarde ingesteld op ${alarm} ppm (voorlopig enkel lokaal bewaard).`);
+
+    if (!Number.isInteger(w) || w < 1 || w > 5000) {
+        toonMelding('Geef een waarde tussen 1 en 5000 ppm in.', true);
+        return;
+    }
+
+    const knop = e.currentTarget.querySelector('button[type="submit"]');
+    knop.disabled = true;
+
+    try {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                actie: 'co2_drempel_inst',
+                co2_drempel: w
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+            throw new Error(data.fout || 'Opslaan mislukt');
+        }
+
+        alarm = Number(data.co2_drempel);
+        toonAlarm();
+        toonMelding(`Alarmwaarde opgeslagen: ${alarm} ppm.`);
+
+    } catch (error) {
+        toonMelding('Opslaan mislukt: ' + error.message, true);
+    } finally {
+        knop.disabled = false;
+    }
 });
 
 // ---------- Devices: badge boven/onder alarmwaarde ----------
@@ -363,6 +419,7 @@ document.querySelectorAll('.device-row').forEach(r => {
 
 vernieuwNamen();
 toonAlarm();
+laadAlarm();
 
 // Bovenbalk wordt compacter bij scrollen
 const topbar = document.getElementById('topbar');
