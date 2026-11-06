@@ -1,12 +1,5 @@
-<<<<<<< HEAD
 {
     "require": {
         "php": ">=8.0"
     }
-=======
-{
-    "require": {
-        "php": ">=8.0"
-    }
->>>>>>> f9a89d56a0e71dc2c5a7357ed0c292b8dca0eadf
 }

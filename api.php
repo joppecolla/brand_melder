@@ -54,7 +54,26 @@ if (!is_array($in)) {
     echo json_encode(['ok' => false, 'fout' => 'ongeldige json']);
     exit;
 }
-
+// Admin-pagina: nieuwe CO2-drempel opslaan (dit is GEEN bericht van de ESP)
+if (($in['actie'] ?? '') === 'co2_drempel_inst') {
+    $w = $in['co2_drempel'] ?? null;
+    if (!is_numeric($w) || (int)$w != $w || (int)$w < 1 || (int)$w > 5000) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'fout' => 'Geef een waarde tussen 1 en 5000 ppm in.']);
+        exit;
+    }
+    try {
+        $st = $pdo->prepare("UPDATE melder_status SET co2_alarm_threshold = ? WHERE id = 1");
+        $st->execute([(int)$w]);
+        if ($st->rowCount() === 0) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
+        meld($pdo, 'CO₂-alarmwaarde ingesteld op ' . (int)$w . ' ppm', 'info');
+        echo json_encode(['ok' => true, 'co2_drempel' => (int)$w]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+    }
+    exit;
+}
 $stap = 'start';
 try {
     $stap = 'melder_status lezen';
@@ -107,7 +126,7 @@ try {
 
 
     // Antwoord: wat jij op het dashboard hebt ingesteld
-    echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek'])]);
+    echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek']), 'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000)]);
 } catch (Throwable $e) {
     error_log('api.php server (' . $stap . '): ' . $e->getMessage());
     http_response_code(500);
