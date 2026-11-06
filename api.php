@@ -23,28 +23,27 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
     $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
 }
 
-// GET = status en CO2-drempel opvragen
+// GET = status en CO2-drempel opvragen (admin-pagina)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-
-    $r = $pdo->query(
-        "SELECT melder_aan, muziek, co2_alarm_threshold
-         FROM melder_status
-         WHERE id = 1"
-    )->fetch(PDO::FETCH_ASSOC);
-
+    try {
+        $r = $pdo->query("SELECT melder_aan, muziek, co2_alarm_threshold FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        error_log('api.php GET: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+        exit;
+    }
     if (!$r) {
         http_response_code(404);
         echo json_encode(['ok' => false, 'fout' => 'Melder niet gevonden']);
         exit;
     }
-
     echo json_encode([
         'ok' => true,
         'melder' => pgBool($r['melder_aan']),
         'muziek' => pgBool($r['muziek']),
         'co2_drempel' => (int)$r['co2_alarm_threshold']
     ]);
-
     exit;
 }
 
@@ -54,6 +53,7 @@ if (!is_array($in)) {
     echo json_encode(['ok' => false, 'fout' => 'ongeldige json']);
     exit;
 }
+
 // Admin-pagina: nieuwe CO2-drempel opslaan (dit is GEEN bericht van de ESP)
 if (($in['actie'] ?? '') === 'co2_drempel_inst') {
     $w = $in['co2_drempel'] ?? null;
@@ -69,11 +69,13 @@ if (($in['actie'] ?? '') === 'co2_drempel_inst') {
         meld($pdo, 'CO₂-alarmwaarde ingesteld op ' . (int)$w . ' ppm', 'info');
         echo json_encode(['ok' => true, 'co2_drempel' => (int)$w]);
     } catch (Throwable $e) {
+        error_log('api.php co2_drempel: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
     }
     exit;
 }
+
 $stap = 'start';
 try {
     $stap = 'melder_status lezen';
@@ -125,8 +127,9 @@ try {
         ->execute([$status, $apparaatAan ? 'true' : 'false', $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
 
 
-    // Antwoord: wat jij op het dashboard hebt ingesteld
-    echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek']), 'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000)]);
+    // Antwoord: wat jij op het dashboard/admin hebt ingesteld (ESP leest melder + co2_drempel)
+    echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek']),
+                     'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000)]);
 } catch (Throwable $e) {
     error_log('api.php server (' . $stap . '): ' . $e->getMessage());
     http_response_code(500);
