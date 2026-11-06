@@ -25,20 +25,8 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
 
 // GET = status opvragen (handig om te testen)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-<<<<<<< HEAD
-    $r = $pdo->query("SELECT melder_aan, muziek, co2_alarm_threshold
-                      FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
-
-    echo json_encode([
-        'ok' => true,
-        'melder' => pgBool($r['melder_aan']),
-        'muziek' => pgBool($r['muziek']),
-        'co2_alarm_threshold' => (int)$r['co2_alarm_threshold']
-    ]);
-=======
     $r = $pdo->query("SELECT melder_aan, muziek FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
     echo json_encode(['ok' => true, 'melder' => pgBool($r['melder_aan']), 'muziek' => pgBool($r['muziek'])]);
->>>>>>> f9a89d56a0e71dc2c5a7357ed0c292b8dca0eadf
     exit;
 }
 
@@ -49,53 +37,6 @@ if (!is_array($in)) {
     exit;
 }
 
-<<<<<<< HEAD
-// CO2-alarmdrempel aanpassen via de adminpagina
-if (($in['actie'] ?? '') === 'co2_drempel_inst') {
-
-    $waarde = filter_var(
-        $in['co2_drempel'] ?? null,
-        FILTER_VALIDATE_INT
-    );
-
-    if ($waarde === false || $waarde < 1 || $waarde > 5000) {
-        http_response_code(400);
-        echo json_encode([
-            'ok' => false,
-            'fout' => 'Ongeldige CO2-drempel'
-        ]);
-        exit;
-    }
-
-    try {
-        $stmt = $pdo->prepare(
-            "UPDATE melder_status
-             SET co2_alarm_threshold = ?
-             WHERE id = 1"
-        );
-
-        $stmt->execute([$waarde]);
-
-        echo json_encode([
-            'ok' => true,
-            'co2_drempel' => $waarde
-        ]);
-
-    } catch (Throwable $e) {
-        error_log('CO2-drempel opslaan: ' . $e->getMessage());
-
-        http_response_code(500);
-        echo json_encode([
-            'ok' => false,
-            'fout' => 'Opslaan mislukt'
-        ]);
-    }
-
-    exit;
-}
-
-=======
->>>>>>> f9a89d56a0e71dc2c5a7357ed0c292b8dca0eadf
 $stap = 'start';
 try {
     $stap = 'melder_status lezen';
@@ -148,16 +89,7 @@ try {
 
 
     // Antwoord: wat jij op het dashboard hebt ingesteld
-<<<<<<< HEAD
-    echo json_encode([
-        'ok' => true,
-        'melder' => pgBool($old['melder_aan']),
-        'muziek' => pgBool($old['muziek']),
-        'co2_alarm_threshold' => (int)$old['co2_alarm_threshold']
-    ]);
-=======
     echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek'])]);
->>>>>>> f9a89d56a0e71dc2c5a7357ed0c292b8dca0eadf
 } catch (Throwable $e) {
     error_log('api.php server (' . $stap . '): ' . $e->getMessage());
     http_response_code(500);

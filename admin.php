@@ -209,7 +209,7 @@ async function laadAlarm() {
             throw new Error('Ophalen mislukt');
         }
 
-        const waarde = Number(data.co2_alarm_threshold);
+        const waarde = Number(data.co2_drempel);
 
         if (!Number.isInteger(waarde) || waarde < 1 || waarde > 5000) {
             throw new Error('Ongeldige alarmwaarde ontvangen');
