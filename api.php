@@ -23,10 +23,28 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
     $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
 }
 
-// GET = status opvragen (handig om te testen)
+// GET = status en CO2-drempel opvragen
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    $r = $pdo->query("SELECT melder_aan, muziek FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
-    echo json_encode(['ok' => true, 'melder' => pgBool($r['melder_aan']), 'muziek' => pgBool($r['muziek'])]);
+
+    $r = $pdo->query(
+        "SELECT melder_aan, muziek, co2_alarm_threshold
+         FROM melder_status
+         WHERE id = 1"
+    )->fetch(PDO::FETCH_ASSOC);
+
+    if (!$r) {
+        http_response_code(404);
+        echo json_encode(['ok' => false, 'fout' => 'Melder niet gevonden']);
+        exit;
+    }
+
+    echo json_encode([
+        'ok' => true,
+        'melder' => pgBool($r['melder_aan']),
+        'muziek' => pgBool($r['muziek']),
+        'co2_drempel' => (int)$r['co2_alarm_threshold']
+    ]);
+
     exit;
 }
 
