@@ -1,3 +1,4 @@
+<?php session_start(); ?>
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -15,7 +16,8 @@
             <a href="index.php" class="active">Home</a>
             <!-- TODO: vervang deze placeholders door de echte pagina's -->
             <a href="dashBoard.php">Dashboard</a>
-            <a href="admin.php">Admin</a>
+            <?php if (!empty($_SESSION['is_admin'])) { ?><a href="admin.php">Admin</a><?php } ?>
+            <?php if (isset($_SESSION['gebruiker_id'])) { ?><a href="logout.php">Uitloggen</a><?php } else { ?><a href="login.php">Login</a><?php } ?>
         </nav>
     </header>
 

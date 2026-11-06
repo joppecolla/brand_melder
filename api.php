@@ -56,6 +56,12 @@ if (!is_array($in)) {
 
 // Admin-pagina: nieuwe CO2-drempel opslaan (dit is GEEN bericht van de ESP)
 if (($in['actie'] ?? '') === 'co2_drempel_inst') {
+        session_start();
+    if (empty($_SESSION['is_admin'])) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'fout' => 'Alleen admins mogen dit wijzigen.']);
+        exit;
+    }
     $w = $in['co2_drempel'] ?? null;
     if (!is_numeric($w) || (int)$w != $w || (int)$w < 1 || (int)$w > 5000) {
         http_response_code(400);

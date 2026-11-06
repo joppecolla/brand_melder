@@ -1,4 +1,8 @@
 <?php
+session_start();
+// Alleen accounts met admin-rechten mogen deze pagina zien
+if (empty($_SESSION['gebruiker_id'])) { header('Location: login.php'); exit; }
+if (empty($_SESSION['is_admin']))     { header('Location: dashBoard.php'); exit; }
 $beginAlarm = 1000; // ppm, beginwaarde tot het bedrijf een eigen waarde ingeeft
 
 // ---------- Voorbeeldwaarden (later vervangen door echte sensordata uit de backend) ----------
@@ -51,6 +55,7 @@ function ico(string $n, string $extra = ''): string {
             <a href="index.php">Home</a>
             <a href="dashBoard.php">Dashboard</a>
             <a href="admin.php" class="active">Admin</a>
+            <?php if (isset($_SESSION['gebruiker_id'])) { ?><a href="logout.php">Uitloggen</a><?php } else { ?><a href="login.php">Login</a><?php } ?>
         </nav>
     </header>
 
@@ -166,7 +171,7 @@ function ico(string $n, string $extra = ''): string {
         <div class="footer-links">
             <a href="index.php">Home</a>
             <a href="dashBoard.php">Dashboard</a>
-            <a href="admin.php">Admin</a>
+            <?php if (!empty($_SESSION['is_admin'])) { ?><a href="admin.php">Admin</a><?php } ?>
         </div>
         <p class="copyright">© <?php echo date("Y"); ?> Brand-Melder</p>
     </footer>

@@ -1,4 +1,5 @@
 <?php
+session_start();
 // Verberg eventuele runtime warnings in productie
 error_reporting(E_ALL & ~E_WARNING & ~E_DEPRECATED);
 date_default_timezone_set('Europe/Brussels');
@@ -258,7 +259,8 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         <nav>
             <a href="index.php">Home</a>
             <a href="dashBoard.php" class="active">Dashboard</a>
-            <a href="admin.php">Admin</a>
+            <?php if (!empty($_SESSION['is_admin'])) { ?><a href="admin.php">Admin</a><?php } ?>
+            <?php if (isset($_SESSION['gebruiker_id'])) { ?><a href="logout.php">Uitloggen</a><?php } else { ?><a href="login.php">Login</a><?php } ?>
         </nav>
     </header>
 
