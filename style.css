@@ -1120,4 +1120,18 @@ img {
     transform: rotate(0deg);
     transform-origin: center;
 }
-
+/* =========================================================
+   LOGIN / REGISTREREN
+   ========================================================= */
+.auth-card { max-width: 460px; margin: 0 auto; }
+.auth-form { display: grid; gap: 16px; }
+.auth-form label { display: grid; gap: 6px; }
+.auth-form label span { color: var(--navy); font-weight: 600; font-size: .92rem; }
+.auth-form input { width: 100%; min-height: 46px; padding: 0 14px; border: 1px solid #d9dfe8; border-radius: 12px;
+    font: inherit; color: var(--navy); background: #fff; transition: border-color .2s, box-shadow .2s; }
+.auth-form input:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 4px rgba(23,43,77,.1); }
+.auth-form small { color: #7a8699; font-size: .82rem; }
+.auth-msg { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; background: #eaf7f1; border: 1px solid #b7e0cf; color: #1d7a55; font-size: .9rem; }
+.auth-msg.fout { background: #fff1f2; border-color: #f3c1c6; color: var(--red); }
+.auth-switch { margin-top: 18px; text-align: center; color: #5b6576; font-size: .92rem; }
+.auth-switch a { color: var(--red); font-weight: 600; }
