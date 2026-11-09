@@ -101,8 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </label>
                     <label>
                         <span>ID's van je brandmelders</span>
-                        <input type="text" name="melder_ids" value="<?php echo htmlspecialchars($melderTekst); ?>" placeholder="bv. BM-01, BM-02" required>
-                        <small>Meerdere ID's scheid je met een komma.</small>
+                        <input type="text" name="melder_ids" value="<?php echo htmlspecialchars($melderTekst); ?>" placeholder="bv. 1, 2" required>                        <small>Meerdere ID's scheid je met een komma.</small>
                     </label>
                     <button type="submit" class="ctrl-btn primary wide">Registreren</button>
                 </form>

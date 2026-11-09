@@ -24,6 +24,24 @@ try {
 $pdo->exec("ALTER TABLE sensor_data ADD COLUMN IF NOT EXISTS melder_id text");
 $mijnMelders = "melder_id IN (SELECT unnest(melder_ids) FROM gebruikers WHERE id = :gebruiker)";
 $gebruiker   = ['gebruiker' => (int)$_SESSION['gebruiker_id']];
+
+// Eigen namen voor de melders (per gebruiker, bv. "Woonkamer")
+$pdo->exec("CREATE TABLE IF NOT EXISTS melder_namen (
+    gebruiker_id int  NOT NULL REFERENCES gebruikers(id) ON DELETE CASCADE,
+    melder_id    text NOT NULL,
+    naam         text NOT NULL,
+    PRIMARY KEY (gebruiker_id, melder_id)
+)");
+$st = $pdo->prepare("SELECT m.melder_id, n.naam
+                     FROM gebruikers g
+                     CROSS JOIN LATERAL unnest(g.melder_ids) WITH ORDINALITY AS m(melder_id, volgorde)
+                     LEFT JOIN melder_namen n ON n.gebruiker_id = g.id AND n.melder_id = m.melder_id
+                     WHERE g.id = ? ORDER BY m.volgorde");
+$st->execute([(int)$_SESSION['gebruiker_id']]);
+$mijnMelderLijst = [];   // melder-ID => naam
+foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
+    $mijnMelderLijst[$m['melder_id']] = $m['naam'] ?? 'Melder ' . $m['melder_id'];
+}
 $stmt = $pdo->prepare("SELECT temperatuur, co2, batterij, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data WHERE $mijnMelders AND co2 >= 300 AND temperatuur <> 0 ORDER BY created_at DESC LIMIT 1");
 $stmt->execute($gebruiker);
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -66,21 +84,22 @@ foreach ($historie as $rij) {
 }
 
 ksort($blokken);
-ksort($perMelder);
 $tijdReeks = array_values($blokken);
+// Elke melder een vaste kleur (zelfde volgorde als in "Mijn melders"), met zijn eigen naam
 $kleuren    = ['#e63946', '#27466f', '#2a9d8f', '#f4a261', '#8e44ad', '#6c757d'];
+$kleurVan   = [];
 $tempLijnen = [];
 $co2Lijnen  = [];
 $nr = 0;
-foreach ($perMelder as $melder => $punten) {
-    $kleur = $kleuren[$nr++ % count($kleuren)];
-    $tempLijnen[] = ['naam' => $melder, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][0] ?? null, array_keys($blokken))];
-    $co2Lijnen[]  = ['naam' => $melder, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][1] ?? null, array_keys($blokken))];
+foreach ($mijnMelderLijst as $melder => $naam) {
+    $kleur = $kleurVan[$melder] = $kleuren[$nr++ % count($kleuren)];
+    if (!isset($perMelder[$melder])) { continue; }
+    $punten = $perMelder[$melder];
+    $tempLijnen[] = ['naam' => $naam, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][0] ?? null, array_keys($blokken))];
+    $co2Lijnen[]  = ['naam' => $naam, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][1] ?? null, array_keys($blokken))];
 }
-
 // Met maar één melder houden de grafieken hun eigen kleur (rood / blauw)
 if (count($tempLijnen) === 1) { $tempLijnen[0]['kleur'] = '#e63946'; $co2Lijnen[0]['kleur'] = '#27466f'; }
-
 // Test de alarm-weergave met dashBoard.php?demo=rook
 $demoAlarm = (($_GET['demo'] ?? '') === 'rook');
 
@@ -112,6 +131,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 meld($pdo, 'Aanzetten aangevraagd via dashboard', 'info');
             }
             break;
+        case 'melder_naam':
+            // Naam opslaan, alleen voor een melder die bij deze gebruiker hoort. Lege naam = standaardnaam
+            $naam   = mb_substr(trim($_POST['naam'] ?? ''), 0, 40);
+            $melder = (string)($_POST['melder_id'] ?? '');
+            $gid    = (int)$_SESSION['gebruiker_id'];
+            if ($naam === '') {
+                $pdo->prepare("DELETE FROM melder_namen WHERE gebruiker_id = ? AND melder_id = ?")->execute([$gid, $melder]);
+            } else {
+                $pdo->prepare("INSERT INTO melder_namen (gebruiker_id, melder_id, naam)
+                               SELECT id, ?, ? FROM gebruikers WHERE id = ? AND ? = ANY(melder_ids)
+                               ON CONFLICT (gebruiker_id, melder_id) DO UPDATE SET naam = EXCLUDED.naam")
+                    ->execute([$melder, $naam, $gid, $melder]);
+            }
+            header('Location: dashBoard.php#melders');
+            exit;
     }
     header('Location: dashBoard.php');
     exit;
@@ -387,13 +421,13 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
                         <span class="tile"><?php echo ico('therm'); ?></span>
                         <div><small>Temperatuur</small><strong id="temp-waarde"><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($tempLijnen, ' °C', 't', $tijdReeks); ?>                </section>
+                    <?php echo lijngrafiek($tempLijnen, ' °C', 't', $tijdReeks); ?></section>
                 <section class="card chart-card" id="co2-chart">
                     <div class="chart-head">
                         <span class="tile blue"><?php echo ico('wind'); ?></span>
                         <div><small>CO₂-gehalte</small><strong id="co2-waarde"><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($co2Lijnen, ' ppm', 'c', $tijdReeks); ?>                </section>
+                    <?php echo lijngrafiek($co2Lijnen, ' ppm', 'c', $tijdReeks); ?></section>
             </div>
 
             <!-- BEDIENING + MELDINGEN -->
@@ -437,6 +471,23 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
                     <?php } ?>
                 </section>
             </div>
+
+            <!-- MIJN MELDERS: naam per melder aanpassen -->
+            <div class="section-row" id="melders"><h3>Mijn melders</h3><span>Geef elke melder een naam, bv. Woonkamer</span></div>
+            <section class="card list-card" id="melders-card">
+                <?php if (!$mijnMelderLijst) { ?><p class="control-warning">Er zijn nog geen melders aan je account gekoppeld.</p><?php } ?>
+                <?php foreach ($mijnMelderLijst as $melder => $naam) { ?>
+                    <form method="post" class="row melder-rij">
+                        <span class="melder-kleur" style="background: <?php echo $kleurVan[$melder]; ?>"></span>
+                        <div>
+                            <small>Melder-ID <?php echo htmlspecialchars($melder); ?></small>
+                            <input type="text" name="naam" maxlength="40" value="<?php echo htmlspecialchars($naam); ?>" placeholder="Melder <?php echo htmlspecialchars($melder); ?>" aria-label="Naam van melder <?php echo htmlspecialchars($melder); ?>">
+                        </div>
+                        <input type="hidden" name="melder_id" value="<?php echo htmlspecialchars($melder); ?>">
+                        <button name="actie" value="melder_naam" class="ctrl-btn primary">Opslaan</button>
+                    </form>
+                <?php } ?>
+            </section>
         </div>
 
         <!-- Bevestigingsvenster -->

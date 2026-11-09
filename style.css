@@ -1139,3 +1139,9 @@ img {
 .auth-msg.fout { background: #fff1f2; border-color: #f3c1c6; color: var(--red); }
 .auth-switch { margin-top: 18px; text-align: center; color: #5b6576; font-size: .92rem; }
 .auth-switch a { color: var(--red); font-weight: 600; }
+
+/* Mijn melders: naam per melder aanpassen */
+.melder-kleur { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 14px; }
+.melder-rij input[type="text"] { margin-top: 4px; padding: 9px 12px; border: 1px solid #dfe4ec; border-radius: 10px; font: inherit; color: var(--navy); width: 100%; max-width: 320px; }
+.melder-rij input[type="text"]:focus { outline: none; border-color: var(--navy-light); }
+.melder-rij .ctrl-btn { flex: 0 0 auto; min-height: 42px; }
