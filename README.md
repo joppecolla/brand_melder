@@ -144,7 +144,11 @@ De website en de microcontroller wisselen niet alleen meetgegevens uit, maar ook
 
 ## ⚙️ Installatie & Starten
 
-### 1. Arduino / ESP32 Firmware
+### 1. Aansluitschema
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/744d378c-f745-4754-9f47-72ff95d1458f" />
+
+
+### 2. Arduino / ESP32 Firmware
 
 1. Open de C++-firmware in de Arduino IDE.
 2. Installeer de vereiste libraries:
@@ -164,7 +168,7 @@ Bij de eerste configuratie maakt de ESP32-S3 een tijdelijk wifi-toegangspunt aan
 
 De CO₂-alarmdrempel staat standaard ingesteld op 1000 ppm. Een aangepaste waarde kan later via het dashboard ingesteld worden.
 
-### 2. Backend & Database
+### 3. Backend & Database
 
 1. Deploy de PHP-bestanden (`api.php` en `dashBoard.php`) op een geschikte hostingomgeving.
 2. Configureer de omgevingsvariabelen voor de verbinding met Neon PostgreSQL.
@@ -172,7 +176,7 @@ De CO₂-alarmdrempel staat standaard ingesteld op 1000 ppm. Een aangepaste waar
 4. Controleer of de database de ontvangen meetgegevens opslaat.
 5. Controleer of de API de melderstatus en CO₂-alarmdrempel correct terugstuurt naar de ESP32-S3.
 
-### 3. Dashboard openen
+### 4. Dashboard openen
 
 Open https://brand-melder.onrender.com/ via de browser om de actuele meetgegevens, historische grafieken en systeemstatus te bekijken.
 
