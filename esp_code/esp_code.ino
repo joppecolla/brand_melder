@@ -13,6 +13,7 @@
 #define TEMP_ALARM_THRESHOLD 35.0   // °C
 #define CO2_HYSTERESE        50     // alarm stopt pas onder (drempel - 50) ppm
 #define TEMP_HYSTERESE       1.0    // alarm stopt pas onder (drempel - 1) °C
+#define melder_id            1
 
 const int DEFAULT_CO2_ALARM_THRESHOLD = 1000;   // ppm
 const unsigned long sensorIntervalMs  = 30000;  // elke 30 s meten
@@ -197,7 +198,8 @@ void setMelderAan(bool aan) {
 
 // Velden die in elk bericht aan de server zitten
 String statusFields(const char* status, bool alarm, bool gedempt) {
-  String s = ",\"batterij\":100";
+  String s = ",\"melder_id\":" + String(melder_id);
+  s += ",\"batterij\":100";
   s += ",\"alarm\":" + String(alarm ? "true" : "false");
   s += ",\"gedempt\":" + String(gedempt ? "true" : "false");
   s += ",\"reden\":\"" + String(alarm ? alarmReden() : "") + "\"";
