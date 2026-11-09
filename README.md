@@ -174,7 +174,7 @@ De CO₂-alarmdrempel staat standaard ingesteld op 1000 ppm. Een aangepaste waar
 
 ### 3. Dashboard openen
 
-Open `https://brand-melder.onrender.com/` via de browser om de actuele meetgegevens, historische grafieken en systeemstatus te bekijken.
+Open https://brand-melder.onrender.com/ via de browser om de actuele meetgegevens, historische grafieken en systeemstatus te bekijken.
 
 Via het dashboard kan de gebruiker de melder beheren en de CO₂-alarmdrempel aanpassen.
 
