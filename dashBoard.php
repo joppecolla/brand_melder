@@ -1,5 +1,7 @@
 <?php
 session_start();
+// Alleen ingelogde gebruikers mogen het dashboard zien
+if (empty($_SESSION['gebruiker_id'])) { header('Location: login.php'); exit; }
 // Verberg eventuele runtime warnings in productie
 error_reporting(E_ALL & ~E_WARNING & ~E_DEPRECATED);
 date_default_timezone_set('Europe/Brussels');
