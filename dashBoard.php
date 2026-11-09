@@ -46,25 +46,40 @@ $st = $pdo->prepare("SELECT COALESCE(EXTRACT(EPOCH FROM (max(created_at::timesta
 $st->execute($gebruiker);
 $spanMin = (float)$st->fetchColumn();
 $blok = $spanMin <= 90 ? 120 : ($spanMin <= 360 ? 600 : 1800);   // seconden per punt
-$st = $pdo->prepare("SELECT floor(EXTRACT(EPOCH FROM created_at::timestamptz) / $blok) * $blok AS blok,
+$st = $pdo->prepare("SELECT melder_id, floor(EXTRACT(EPOCH FROM created_at::timestamptz) / $blok) * $blok AS blok,
                             AVG(temperatuur) AS t, AVG(co2) AS c
                      FROM sensor_data WHERE $filter
-                     GROUP BY 1 ORDER BY 1");
+                     GROUP BY 1, 2 ORDER BY 2");
 $st->execute($gebruiker);
 $historie = $st->fetchAll(PDO::FETCH_ASSOC);
 
-$tempReeks = [];
-$co2Reeks  = [];
-$tijdReeks = [];
-
+// Per melder een eigen lijn; alle melders delen dezelfde tijdas
+$blokken   = [];
+$perMelder = [];
 foreach ($historie as $rij) {
     $t = round((float)$rij['t'], 1);
     $c = (int)round((float)$rij['c']);
     if ($t < -10 || $t > 60 || $c > 5000) { continue; }
-    $tempReeks[] = $t;
-    $co2Reeks[]  = $c;
-    $tijdReeks[] = date('H:i', (int)$rij['blok']);
+    $b = (int)$rij['blok'];
+    $blokken[$b] = date('H:i', $b);
+    $perMelder[$rij['melder_id']][$b] = [$t, $c];
 }
+
+ksort($blokken);
+ksort($perMelder);
+$tijdReeks = array_values($blokken);
+$kleuren    = ['#e63946', '#27466f', '#2a9d8f', '#f4a261', '#8e44ad', '#6c757d'];
+$tempLijnen = [];
+$co2Lijnen  = [];
+$nr = 0;
+foreach ($perMelder as $melder => $punten) {
+    $kleur = $kleuren[$nr++ % count($kleuren)];
+    $tempLijnen[] = ['naam' => $melder, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][0] ?? null, array_keys($blokken))];
+    $co2Lijnen[]  = ['naam' => $melder, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][1] ?? null, array_keys($blokken))];
+}
+
+// Met maar één melder houden de grafieken hun eigen kleur (rood / blauw)
+if (count($tempLijnen) === 1) { $tempLijnen[0]['kleur'] = '#e63946'; $co2Lijnen[0]['kleur'] = '#27466f'; }
 
 // Test de alarm-weergave met dashBoard.php?demo=rook
 $demoAlarm = (($_GET['demo'] ?? '') === 'rook');
@@ -197,59 +212,91 @@ function mooieSchaal(float $minV, float $maxV, int $doel = 3): array {
     return [floor($minV / $stap) * $stap, ceil($maxV / $stap) * $stap, $stap];
 }
 
-function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?array $labels = null): string {
-    $n = count($w);
+// $lijnen = lijst van ['naam' => melder-ID, 'kleur' => ..., 'waarden' => [getal of null per tijdsblok]]
+function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels): string {
+    $n = count($labels);
 
-    if ($n === 0) {
+    if (!$lijnen || $n === 0) {
         return '<div style="height: 190px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 0.9rem;">Nog geen metingen beschikbaar</div>';
     }
 
-    $labels = $labels ?? [];
     $B = 420; $H = 190; $L = 40; $R = 12; $T = 14; $Bo = 26;
 
+    // Eén tijdsblok: dubbel zetten zodat er toch een (vlakke) lijn getekend wordt
     if ($n === 1) {
-        $w = [$w[0], $w[0]];
-        if (!empty($labels)) { $labels = [$labels[0], $labels[0]]; }
+        $labels = [$labels[0], $labels[0]];
+        foreach ($lijnen as &$lijn) { $lijn['waarden'] = [$lijn['waarden'][0], $lijn['waarden'][0]]; }
+        unset($lijn);
         $n = 2;
     }
 
-    [$min, $max, $stap] = mooieSchaal((float)min($w), (float)max($w));
+        // Schaal op basis van alle melders samen
+    $alles = [];
+    foreach ($lijnen as $lijn) { foreach ($lijn['waarden'] as $v) { if ($v !== null) { $alles[] = $v; } } }
+    [$min, $max, $stap] = mooieSchaal((float)min($alles), (float)max($alles));
     if ($eenheid === ' ppm' && $min < 0) { $min = 0; }
     if ($max <= $min) { $max = $min + $stap; }
 
-    $xy = [];
-    foreach ($w as $i => $v) {
-        $xy[] = [$L + ($B - $L - $R) * $i / ($n - 1), $T + ($H - $T - $Bo) * (1 - ($v - $min) / ($max - $min))];
-    }
+    $x = fn($i) => $L + ($B - $L - $R) * $i / ($n - 1);
+    $y = fn($v) => $T + ($H - $T - $Bo) * (1 - ($v - $min) / ($max - $min));
 
-    $d = 'M' . round($xy[0][0], 1) . ',' . round($xy[0][1], 1);
-    for ($i = 1; $i < $n; $i++) {
-        $cx = ($xy[$i - 1][0] + $xy[$i][0]) / 2;
-        $d .= ' C' . round($cx, 1) . ',' . round($xy[$i - 1][1], 1) . ' ' . round($cx, 1) . ',' . round($xy[$i][1], 1) . ' ' . round($xy[$i][0], 1) . ',' . round($xy[$i][1], 1);
-    }
+    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek">';
 
-    $vlak = $d . ' L' . round($xy[$n - 1][0], 1) . ',' . ($H - $Bo) . ' L' . $L . ',' . ($H - $Bo) . ' Z';
-    $o = '<svg viewBox="0 0 ' . $B . ' ' . $H . '" class="chart" role="img" aria-label="Grafiek"><defs><linearGradient id="g' . $id . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>';
-
-    $aantal = max(1, (int)round(($max - $min) / $stap));
+        $aantal = max(1, (int)round(($max - $min) / $stap));
     $dec = $stap < 1 ? 1 : 0;
     for ($k = 0; $k <= $aantal; $k++) {
         $val = $max - $k * $stap;
-        $y = $T + ($H - $T - $Bo) * $k / $aantal;
-        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $y . '" y2="' . $y . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($y + 4) . '" text-anchor="end" class="axis">' . number_format($val, $dec, '.', '') . '</text>';
+        $gy = $T + ($H - $T - $Bo) * $k / $aantal;
+        $o .= '<line x1="' . $L . '" x2="' . ($B - $R) . '" y1="' . $gy . '" y2="' . $gy . '" class="grid"/><text x="' . ($L - 8) . '" y="' . ($gy + 4) . '" text-anchor="end" class="axis">' . number_format($val, $dec, '.', '') . '</text>';
     }
 
     $aantalLabels = min($n, 5);
     for ($k = 0; $k < $aantalLabels; $k++) {
         $i = $aantalLabels === 1 ? 0 : (int)round($k * ($n - 1) / ($aantalLabels - 1));
         $label = ($i === $n - 1) ? 'nu' : ($labels[$i] ?? '');
-        $o .= '<text x="' . round($xy[$i][0], 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
+        $o .= '<text x="' . round($x($i), 1) . '" y="' . ($H - 6) . '" text-anchor="middle" class="axis">' . $label . '</text>';
     }
 
-    $lx = round($xy[$n - 1][0], 1); $ly = round($xy[$n - 1][1], 1);
-    return $o . '<path d="' . $vlak . '" fill="url(#g' . $id . ')"/><path d="' . $d . '" fill="none" stroke="' . $kleur . '" stroke-width="3" stroke-linecap="round" class="line" pathLength="1"/>'
-        . '<circle cx="' . $lx . '" cy="' . $ly . '" r="10" fill="' . $kleur . '" opacity=".15"/><circle cx="' . $lx . '" cy="' . $ly . '" r="5" fill="#fff" stroke="' . $kleur . '" stroke-width="3"/></svg>';
+    // Eén lijn per melder (tijdsblokken zonder meting worden overgeslagen)
+    $legende = '';
+    $punten  = [];   // alle punten, voor het tonen van de waarde onder de muis
+    foreach ($lijnen as $nr => $lijn) {
+        $kleur = $lijn['kleur'];
+        $xy = [];
+        foreach ($lijn['waarden'] as $i => $v) {
+            if ($v === null) { continue; }
+            $xy[] = [$x($i), $y($v)];
+            $punten[] = ['x' => round($x($i), 1), 'y' => round($y($v), 1), 'w' => $v, 't' => $labels[$i] ?? '', 'naam' => $lijn['naam'], 'kleur' => $kleur];
+        }
+        if (!$xy) { continue; }
+
+        $d = 'M' . round($xy[0][0], 1) . ',' . round($xy[0][1], 1);
+        for ($i = 1; $i < count($xy); $i++) {
+            $cx = ($xy[$i - 1][0] + $xy[$i][0]) / 2;
+            $d .= ' C' . round($cx, 1) . ',' . round($xy[$i - 1][1], 1) . ' ' . round($cx, 1) . ',' . round($xy[$i][1], 1) . ' ' . round($xy[$i][0], 1) . ',' . round($xy[$i][1], 1);
+        }
+
+        // Gekleurd vlak onder de lijn alleen bij één melder (anders wordt het onleesbaar)
+        if (count($lijnen) === 1 && count($xy) > 1) {
+            $vlak = $d . ' L' . round(end($xy)[0], 1) . ',' . ($H - $Bo) . ' L' . round($xy[0][0], 1) . ',' . ($H - $Bo) . ' Z';
+            $o .= '<defs><linearGradient id="g' . $id . $nr . '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' . $kleur . '" stop-opacity=".28"/><stop offset="1" stop-color="' . $kleur . '" stop-opacity="0"/></linearGradient></defs>'
+                . '<path d="' . $vlak . '" fill="url(#g' . $id . $nr . ')"/>';
+        }
+
+        [$lx, $ly] = [round(end($xy)[0], 1), round(end($xy)[1], 1)];
+        $o .= '<path d="' . $d . '" fill="none" stroke="' . $kleur . '" stroke-width="3" stroke-linecap="round" class="line" pathLength="1"/>'
+            . '<circle cx="' . $lx . '" cy="' . $ly . '" r="10" fill="' . $kleur . '" opacity=".15"/><circle cx="' . $lx . '" cy="' . $ly . '" r="5" fill="#fff" stroke="' . $kleur . '" stroke-width="3"/>';
+
+        $legende .= '<span><i style="background:' . $kleur . '"></i>' . htmlspecialchars($lijn['naam']) . '</span>';
+    }
+
+    // Bolletje dat de muis volgt + alle punten als data voor JavaScript
+    $o .= '<circle class="hover-punt" r="6" fill="#fff" stroke-width="3" style="display:none"/>';
+    $o = str_replace('<svg ', '<svg data-eenheid="' . trim($eenheid) . '" data-punten="' . htmlspecialchars(json_encode($punten), ENT_QUOTES) . '" ', $o);
+
+    return $o . '</svg><div class="chart-legende">' . $legende . '</div>';
 }
+
 ?>
 
 <!DOCTYPE html>
@@ -340,15 +387,13 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
                         <span class="tile"><?php echo ico('therm'); ?></span>
                         <div><small>Temperatuur</small><strong id="temp-waarde"><?php echo $huidigeTemp; ?> <em>°C</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($tempReeks, '#e63946', ' °C', 't', $tijdReeks); ?>
-                </section>
+                    <?php echo lijngrafiek($tempLijnen, ' °C', 't', $tijdReeks); ?>                </section>
                 <section class="card chart-card" id="co2-chart">
                     <div class="chart-head">
                         <span class="tile blue"><?php echo ico('wind'); ?></span>
                         <div><small>CO₂-gehalte</small><strong id="co2-waarde"><?php echo $huidigeCo2; ?> <em>ppm</em></strong></div>
                     </div>
-                    <?php echo lijngrafiek($co2Reeks, '#27466f', ' ppm', 'c', $tijdReeks); ?>
-                </section>
+                    <?php echo lijngrafiek($co2Lijnen, ' ppm', 'c', $tijdReeks); ?>                </section>
             </div>
 
             <!-- BEDIENING + MELDINGEN -->
@@ -417,6 +462,64 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
         if (cancelBtn && dlg) dlg.close();
     });
 
+        // Grafiek: bovenaan de waarde tonen van het punt waar de muis boven hangt
+    function toonStandaard(svg) {
+        const kop = svg.closest('.chart-card').querySelector('.chart-head');
+        const groot = kop.querySelector('strong'), klein = kop.querySelector('small');
+        if (groot.dataset.standaard) {
+            groot.innerHTML = groot.dataset.standaard;
+            klein.textContent = klein.dataset.standaard;
+            delete groot.dataset.standaard;
+        }
+        svg.querySelector('.hover-punt').style.display = 'none';
+    }
+
+        // Muis én vinger: toon de waarde van het dichtstbijzijnde punt
+    function toonPunt(e) {
+        const svg = e.target.closest && e.target.closest('svg.chart[data-punten]');
+        if (!svg) return;
+        const punten = JSON.parse(svg.dataset.punten);
+        if (!punten.length) return;
+
+        // Muispositie omrekenen naar coördinaten in de grafiek en dichtstbijzijnde punt zoeken
+        const muis = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+        let beste = punten[0];
+        punten.forEach(p => {
+            if (Math.hypot(p.x - muis.x, p.y - muis.y) < Math.hypot(beste.x - muis.x, beste.y - muis.y)) beste = p;
+        });
+
+        const kop = svg.closest('.chart-card').querySelector('.chart-head');
+        const groot = kop.querySelector('strong'), klein = kop.querySelector('small');
+        if (!groot.dataset.standaard) {
+            groot.dataset.standaard = groot.innerHTML;
+            klein.dataset.standaard = klein.textContent;
+        }
+        groot.innerHTML = beste.w + ' <em>' + svg.dataset.eenheid + '</em>';
+        klein.textContent = klein.dataset.standaard + ' · ' + beste.naam + ' om ' + beste.t;
+
+        const bol = svg.querySelector('.hover-punt');
+        bol.setAttribute('cx', beste.x);
+        bol.setAttribute('cy', beste.y);
+        bol.setAttribute('stroke', beste.kleur);
+        bol.style.display = '';
+    }
+    document.addEventListener('pointermove', toonPunt);
+    document.addEventListener('pointerdown', toonPunt);
+
+    // Muis: terugzetten als de muis de grafiek verlaat
+    document.addEventListener('pointerout', (e) => {
+        if (e.pointerType !== 'mouse') return;
+        const svg = e.target.closest && e.target.closest('svg.chart[data-punten]');
+        if (svg && !svg.contains(e.relatedTarget)) toonStandaard(svg);
+    });
+
+    // Gsm: terugzetten als je ergens anders op de pagina tikt
+    document.addEventListener('pointerdown', (e) => {
+        document.querySelectorAll('svg.chart[data-punten]').forEach(svg => {
+            if (!svg.contains(e.target)) toonStandaard(svg);
+        });
+    });
+
     setInterval(async () => {
         try {
             const response = await fetch(window.location.pathname + '?t=' + Date.now(), { cache: 'no-store' });
@@ -444,9 +547,9 @@ function lijngrafiek(array $w, string $kleur, string $eenheid, string $id, ?arra
             elementenToUpdate.forEach(id => {
                 const nieuwEl = doc.getElementById(id);
                 const huidigEl = document.getElementById(id);
-                if (nieuwEl && huidigEl && nieuwEl.innerHTML !== huidigEl.innerHTML) {
-                    huidigEl.innerHTML = nieuwEl.innerHTML;
-                }
+                // Grafiek niet vervangen zolang de muis erboven hangt
+                // Grafiek niet vervangen zolang er een punt aangeduid is (muis of vinger)
+                if (nieuwEl && huidigEl && nieuwEl.innerHTML !== huidigEl.innerHTML && !huidigEl.querySelector('[data-standaard]')) {}
             });
 
         } catch (error) {
