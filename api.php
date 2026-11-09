@@ -93,13 +93,17 @@ try {
     $alarm       = (bool)($in['alarm'] ?? false);
     $gedempt     = $alarm && (bool)($in['gedempt'] ?? false);
     $reden       = $alarm ? substr(preg_replace('/[^a-z]/', '', strtolower((string)($in['reden'] ?? ''))), 0, 20) : '';
+        // ID van de brandmelder (zelfde vorm als bij registreren, bv. "BM-01")
+    $melderId    = trim((string)($in['melder_id'] ?? ''));
+    if (!preg_match('/^[A-Za-z0-9_-]{1,30}$/', $melderId)) { $melderId = null; }
 
     // Meting opslaan (een ping bevat geen meetwaarden)
     $heeftMeting = isset($in['temperatuur'], $in['co2']) && is_numeric($in['temperatuur']) && is_numeric($in['co2']);
     if ($heeftMeting) {
-        $stap = 'meting opslaan';
-        $pdo->prepare("INSERT INTO sensor_data (temperatuur, co2, batterij, alarm, gedempt) VALUES (?, ?, ?, CAST(? AS boolean), CAST(? AS boolean))")
-            ->execute([(float)$in['temperatuur'], (int)$in['co2'], (int)($in['batterij'] ?? 100),
+                $stap = 'meting opslaan';
+        $pdo->exec("ALTER TABLE sensor_data ADD COLUMN IF NOT EXISTS melder_id text");
+        $pdo->prepare("INSERT INTO sensor_data (melder_id, temperatuur, co2, batterij, alarm, gedempt) VALUES (?, ?, ?, ?, CAST(? AS boolean), CAST(? AS boolean))")
+            ->execute([$melderId, (float)$in['temperatuur'], (int)$in['co2'], (int)($in['batterij'] ?? 100),
                        $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false']);
     }
 

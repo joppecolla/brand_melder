@@ -20,7 +20,12 @@ try {
     die("Databaseverbinding mislukt: " . $e->getMessage());
 }
 
-$stmt = $pdo->query("SELECT temperatuur, co2, batterij, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data WHERE co2 >= 300 AND temperatuur <> 0 ORDER BY created_at DESC LIMIT 1");
+// ---------- 2. Alleen data van de melders van deze gebruiker ----------
+$pdo->exec("ALTER TABLE sensor_data ADD COLUMN IF NOT EXISTS melder_id text");
+$mijnMelders = "melder_id IN (SELECT unnest(melder_ids) FROM gebruikers WHERE id = :gebruiker)";
+$gebruiker   = ['gebruiker' => (int)$_SESSION['gebruiker_id']];
+$stmt = $pdo->prepare("SELECT temperatuur, co2, batterij, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data WHERE $mijnMelders AND co2 >= 300 AND temperatuur <> 0 ORDER BY created_at DESC LIMIT 1");
+$stmt->execute($gebruiker);
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if ($laatsteData) {
@@ -34,17 +39,19 @@ if ($laatsteData) {
     $batterij      = 0;
     $laatsteUpdate = date('H:i');
 }
-
 // Grafiekdata: laatste 24 uur, gemiddeld per tijdsblok
-$filter = "created_at::timestamptz >= now() - interval '24 hours' AND co2 >= 300 AND temperatuur <> 0";
-$spanMin = (float)($pdo->query("SELECT COALESCE(EXTRACT(EPOCH FROM (max(created_at::timestamptz) - min(created_at::timestamptz))) / 60, 0)
-                                FROM sensor_data WHERE $filter")->fetchColumn());
+$filter = "$mijnMelders AND created_at::timestamptz >= now() - interval '24 hours' AND co2 >= 300 AND temperatuur <> 0";
+$st = $pdo->prepare("SELECT COALESCE(EXTRACT(EPOCH FROM (max(created_at::timestamptz) - min(created_at::timestamptz))) / 60, 0)
+                     FROM sensor_data WHERE $filter");
+$st->execute($gebruiker);
+$spanMin = (float)$st->fetchColumn();
 $blok = $spanMin <= 90 ? 120 : ($spanMin <= 360 ? 600 : 1800);   // seconden per punt
-
-$historie = $pdo->query("SELECT floor(EXTRACT(EPOCH FROM created_at::timestamptz) / $blok) * $blok AS blok,
-                                AVG(temperatuur) AS t, AVG(co2) AS c
-                         FROM sensor_data WHERE $filter
-                         GROUP BY 1 ORDER BY 1")->fetchAll(PDO::FETCH_ASSOC);
+$st = $pdo->prepare("SELECT floor(EXTRACT(EPOCH FROM created_at::timestamptz) / $blok) * $blok AS blok,
+                            AVG(temperatuur) AS t, AVG(co2) AS c
+                     FROM sensor_data WHERE $filter
+                     GROUP BY 1 ORDER BY 1");
+$st->execute($gebruiker);
+$historie = $st->fetchAll(PDO::FETCH_ASSOC);
 
 $tempReeks = [];
 $co2Reeks  = [];
