@@ -183,29 +183,49 @@ $alarmActief  = pgBool($ms['alarm_actief']);
 $gedempt      = pgBool($ms['alarm_gedempt']);
 $wijzigingBezig = $contactVers && !$lokaal && ($staat['melder'] !== $apparaatAan);
 
-// Verbinding
-if ($lokaal)                 { $verbinding = 'Lokale modus (geen wifi)'; $onlineKleur = 'offline'; }
-elseif ($seconden === null)  { $verbinding = 'Geen data';                $onlineKleur = 'offline'; }
-elseif ($contactVers)        { $verbinding = 'Online';                   $onlineKleur = 'online'; }
-else                         { $verbinding = 'Offline (geen signaal)';   $onlineKleur = 'offline'; }
+// Per device van deze gebruiker: is hij online en geeft hij alarm?
+$pdo->exec("CREATE TABLE IF NOT EXISTS melder_toestand (
+    melder_id       text PRIMARY KEY,
+    laatste_contact timestamptz NOT NULL DEFAULT now(),
+    modus           text NOT NULL DEFAULT 'online',
+    alarm           boolean NOT NULL DEFAULT false,
+    gedempt         boolean NOT NULL DEFAULT false,
+    reden           text NOT NULL DEFAULT ''
+)");
+$st = $pdo->prepare("SELECT melder_id, modus, alarm, gedempt, reden, EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden
+                     FROM melder_toestand WHERE $mijnMelders");
+$st->execute($gebruiker);
+$onlineMelders = [];   // namen van de devices die online zijn
+$alarmMelders  = [];   // namen van de devices die alarm geven (met de reden)
+foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
+    // Online = in de laatste 90 s iets gestuurd (ping elke ~15 s) en niet in lokale modus
+    if ($m['modus'] === 'lokaal' || (float)$m['seconden'] > 90) { continue; }
+    $naam = $mijnMelderLijst[$m['melder_id']] ?? 'Melder ' . $m['melder_id'];
+    $onlineMelders[] = $naam;
+    if (pgBool($m['alarm'])) {
+        $waarom = ['co2' => 'CO₂ te hoog', 'temperatuur' => 'temperatuur te hoog', 'handmatig' => 'handmatig alarm'][$m['reden']] ?? 'alarm';
+        $alarmMelders[] = $naam . ' (' . $waarom . (pgBool($m['gedempt']) ? ', gedempt' : '') . ')';
+    }
+}
+$contactVers = count($onlineMelders) > 0;   // minstens één device online
+$lokaal      = false;                       // lokale modus telt nu per device als offline
+$alarmActief = count($alarmMelders) > 0;
+$wijzigingBezig = $contactVers && ($staat['melder'] !== $apparaatAan);
 
-// Alarmtekst
-$reden = $ms['alarm_reden'];
-if ($reden === 'co2')              { $alarmDetail = 'CO₂-gehalte te hoog: ' . $huidigeCo2 . ' ppm'; }
-elseif ($reden === 'temperatuur')  { $alarmDetail = 'Temperatuur te hoog: ' . round($huidigeTemp, 1) . ' °C'; }
-elseif ($reden === 'handmatig')    { $alarmDetail = 'Handmatig alarm op de melder'; }
-else                               { $alarmDetail = 'Alarm op de melder'; }
-if ($gedempt) { $alarmDetail .= ' (buzzer gedempt op de melder)'; }
+// Verbinding: online zolang minstens één device online is, met eronder welke
+if ($contactVers) { $verbinding = 'Online';  $onlineKleur = 'online';  $verbindingDetail = implode(', ', $onlineMelders); }
+else              { $verbinding = 'Offline'; $onlineKleur = 'offline'; $verbindingDetail = $mijnMelderLijst ? 'Geen enkel device is online' : 'Nog geen devices gekoppeld'; }
+
+// Alarmtekst: welke devices geven alarm
+$alarmDetail = 'Alarm bij: ' . implode(', ', $alarmMelders);
 if ($demoAlarm) { $alarmDetail = 'Demo-alarm (Rook gedetecteerd)'; }
 
 // Status bepaling
 if ($demoAlarm)           { $niveau = 'alarm'; $systeemStatus = 'Alarm';             $titel = 'Alarm!';               $sub = $alarmDetail . '.'; }
-elseif ($lokaal)          { $niveau = 'uit';   $systeemStatus = 'Lokale modus';      $titel = 'Melder in lokale modus'; $sub = 'De melder is op het apparaat offline gezet. Hij stuurt geen gegevens door, dus de status is onbekend.'; }
-elseif (!$contactVers)    { $niveau = 'uit';   $systeemStatus = 'Geen verbinding';   $titel = 'Melder offline';       $sub = $seconden === null ? 'Er is nog nooit contact geweest met de melder.' : 'Er is geen signaal van de melder. De status is onbekend.'; }
-elseif (!$apparaatAan)    { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';     $titel = 'Melder uitgeschakeld'; $sub = 'De rookmelder detecteert momenteel niets.'; }
+elseif (!$contactVers)    { $niveau = 'uit';   $systeemStatus = 'Offline';           $titel = 'Offline';              $sub = 'Geen enkel device is online. De status is onbekend.'; }
 elseif ($alarmActief)     { $niveau = 'alarm'; $systeemStatus = 'Alarm';             $titel = 'Alarm!';               $sub = $alarmDetail . '.'; }
-else                      { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig';   $titel = 'Alles in orde';        $sub = 'De melder is verbonden en er is geen alarm.'; }
-if ($wijzigingBezig && $niveau !== 'alarm') { $sub .= ' Wijziging wordt doorgegeven aan de melder…'; }
+elseif (!$apparaatAan)    { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';     $titel = 'Melder uitgeschakeld'; $sub = 'De rookmelder detecteert momenteel niets.'; }
+else                      { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig';   $titel = 'Online';               $sub = 'Online: ' . implode(', ', $onlineMelders) . '. Geen alarm.'; }if ($wijzigingBezig && $niveau !== 'alarm') { $sub .= ' Wijziging wordt doorgegeven aan de melder…'; }
 
 // Tekst bij de rookmelder-bediening
 if ($lokaal)               { $melderTekst = 'Lokale modus, niet bereikbaar'; }
@@ -405,7 +425,6 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
                     </div>
                     <h2><?php echo $titel; ?></h2>
                     <p><?php echo $sub; ?></p>
-                    <a href="#grafieken" class="cta-button">Bekijk live gegevens</a>
                 </section>
 
                 <section class="card list-card" id="systeem-card">
@@ -423,9 +442,7 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
                     </div>
                     <div class="row" id="verbinding-row">
                         <span class="tile"><?php echo ico('wifi'); ?></span>
-                        <div><small>Verbinding</small><strong><i class="<?php echo $onlineKleur; ?>"></i><?php echo $verbinding; ?></strong></div>
-                        <?php echo ico('chev', 'chev'); ?>
-                    </div>
+                        <div><small>Verbinding</small><strong><i class="<?php echo $onlineKleur; ?>"></i><?php echo $verbinding; ?></strong><small><?php echo htmlspecialchars($verbindingDetail); ?></small></div>                    </div>
                 </section>
             </div>
 

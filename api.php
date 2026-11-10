@@ -92,8 +92,7 @@ try {
     $apparaatAan = array_key_exists('melder_aan', $in) ? (bool)$in['melder_aan'] : pgBool($old['apparaat_aan']);
     $alarm       = (bool)($in['alarm'] ?? false);
     $gedempt     = $alarm && (bool)($in['gedempt'] ?? false);
-    $reden       = $alarm ? substr(preg_replace('/[^a-z]/', '', strtolower((string)($in['reden'] ?? ''))), 0, 20) : '';
-        // ID van de brandmelder (zelfde vorm als bij registreren, bv. "BM-01")
+    $reden       = $alarm ? substr(preg_replace('/[^a-z0-9]/', '', strtolower((string)($in['reden'] ?? ''))), 0, 20) : '';        // ID van de brandmelder (zelfde vorm als bij registreren, bv. "BM-01")
     $melderId    = trim((string)($in['melder_id'] ?? ''));
     if (!preg_match('/^[A-Za-z0-9_-]{1,30}$/', $melderId)) { $melderId = null; }
 
@@ -136,6 +135,23 @@ try {
                    alarm_actief = CAST(? AS boolean), alarm_gedempt = CAST(? AS boolean), alarm_reden = ? WHERE id = 1")
         ->execute([$status, $apparaatAan ? 'true' : 'false', $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
 
+    // Toestand per melder (online/lokaal, alarm) zodat het dashboard per device kan tonen wie online is en wie alarm geeft
+    if ($melderId !== null) {
+        $stap = 'melder_toestand bijwerken';
+        $pdo->exec("CREATE TABLE IF NOT EXISTS melder_toestand (
+            melder_id       text PRIMARY KEY,
+            laatste_contact timestamptz NOT NULL DEFAULT now(),
+            modus           text NOT NULL DEFAULT 'online',
+            alarm           boolean NOT NULL DEFAULT false,
+            gedempt         boolean NOT NULL DEFAULT false,
+            reden           text NOT NULL DEFAULT ''
+        )");
+        $pdo->prepare("INSERT INTO melder_toestand (melder_id, laatste_contact, modus, alarm, gedempt, reden)
+                       VALUES (?, now(), ?, CAST(? AS boolean), CAST(? AS boolean), ?)
+                       ON CONFLICT (melder_id) DO UPDATE SET laatste_contact = now(), modus = EXCLUDED.modus,
+                           alarm = EXCLUDED.alarm, gedempt = EXCLUDED.gedempt, reden = EXCLUDED.reden")
+            ->execute([$melderId, $status, $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
+    }
 
     // Antwoord: wat jij op het dashboard/admin hebt ingesteld (ESP leest melder + co2_drempel)
     echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek']),

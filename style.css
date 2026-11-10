@@ -1068,7 +1068,8 @@ img {
 .chart-head strong { display: block; color: var(--navy); font-size: 1.9rem; line-height: 1.1; letter-spacing: -1px; }
 .chart-head em { font-style: normal; font-size: .95rem; color: var(--muted); font-weight: 700; letter-spacing: 0; }
 .chart { width: 100%; height: auto; display: block; }
-.chart .grid { stroke: #edf0f5; stroke-dasharray: 3 4; } .chart .axis { fill: #98a2b3; font-size: 10px; }
+.chart .grid { stroke: #edf0f5; stroke-dasharray: 3 4; } 
+.chart .axis { fill: #98a2b3; font-size: 10px; }
 /* Op gsm: horizontaal schuiven over de grafiek toont de waarden, verticaal blijft scrollen */
 .chart { touch-action: pan-y; }
 .chart-legende { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; font-size: .8rem; color: var(--muted); }
