@@ -69,7 +69,8 @@ function ico(string $n, string $extra = ''): string {
         'x' => '<path d="M18 6 6 18M6 6l12 12"/>',
         'table' => '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
         'chart' => '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>',
-    ];
+        'clock' => '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+        ];
     return '<svg class="ico ' . $extra . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$n] . '</svg>';
 }
 ?>
@@ -126,7 +127,24 @@ function ico(string $n, string $extra = ''): string {
                         <p class="save-msg" id="saveMsg" hidden></p>
                     </form>
                 </section>
+            <!-- VERZENDINTERVAL -->
+                <section class="card" style="margin-top: 20px">
+                    <h3 class="card-title">Verzendinterval ESP</h3>
 
+                    <div class="control">
+                        <span class="tile blue"><?php echo ico('clock'); ?></span>
+                        <div><small>De ESP stuurt zijn metingen door</small><strong class="threshold-value" id="intervalWeergave">elke 2 min</strong></div>
+                    </div>
+
+                    <form id="intervalForm" class="threshold-form">
+                        <label class="input-row">
+                            <span>Nieuw interval (10 tot 3600)</span>
+                            <span class="input-unit"><input type="number" id="intervalInput" min="10" max="3600" step="1" value="120" required><em>sec</em></span>
+                        </label>
+                        <button type="submit" class="ctrl-btn primary wide"><?php echo ico('save'); ?>Opslaan</button>
+                        <p class="save-msg" id="intervalMsg" hidden></p>
+                    </form>
+                </section>
             <!-- GRAFIEK -->
             <div class="section-row" id="grafiek"><h3>Verloop per device</h3><span>Laatste 24 uur</span></div>
             <section class="card">
@@ -274,6 +292,54 @@ document.getElementById('alarmForm').addEventListener('submit', async e => {
     }
 });
 
+// ---------- Verzendinterval: hoe vaak de ESP metingen doorstuurt ----------
+const intervalInvoer = document.getElementById('intervalInput');
+const intervalMelding = document.getElementById('intervalMsg');
+
+function toonInterval(sec) {
+    const tekst = sec % 60 === 0 ? `${sec / 60} min` : sec > 60 ? `${Math.floor(sec / 60)} min ${sec % 60} s` : `${sec} s`;
+    document.getElementById('intervalWeergave').textContent = 'elke ' + tekst;
+    intervalInvoer.value = sec;
+}
+function toonIntervalMelding(tekst, fout) {
+    intervalMelding.textContent = tekst; intervalMelding.classList.toggle('fout', !!fout); intervalMelding.hidden = false;
+}
+async function laadInterval() {
+    try {
+        const response = await fetch('api.php', { method: 'GET', cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error('Ophalen mislukt');
+        toonInterval(Number(data.verzend_interval));
+    } catch (error) {
+        toonIntervalMelding('Kon het verzendinterval niet ophalen uit de database.', true);
+    }
+}
+document.getElementById('intervalForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const w = Number(intervalInvoer.value);
+    if (!Number.isInteger(w) || w < 10 || w > 3600) {
+        toonIntervalMelding('Geef een waarde tussen 10 en 3600 seconden in.', true);
+        return;
+    }
+    const knop = e.currentTarget.querySelector('button[type="submit"]');
+    knop.disabled = true;
+    try {
+        const response = await fetch('api.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actie: 'verzend_interval_inst', verzend_interval: w })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.fout || 'Opslaan mislukt');
+        toonInterval(Number(data.verzend_interval));
+        toonIntervalMelding(`Opgeslagen. De ESP's nemen dit over bij hun volgende ping (binnen 15 s).`);
+    } catch (error) {
+        toonIntervalMelding('Opslaan mislukt: ' + error.message, true);
+    } finally {
+        knop.disabled = false;
+    }
+});
+
 // ---------- Grafiek (SVG, zelfde stijl als dashboard) ----------
 const NS = 'http://www.w3.org/2000/svg';
 function el(naam, attr, tekst) {
@@ -406,6 +472,7 @@ function vernieuwNamen() {
 vernieuwNamen();
 toonAlarm();
 laadAlarm();
+laadInterval();
 
 // Bovenbalk wordt compacter bij scrollen
 const topbar = document.getElementById('topbar');

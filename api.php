@@ -26,8 +26,7 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
 // GET = status en CO2-drempel opvragen (admin-pagina)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
-        $r = $pdo->query("SELECT melder_aan, muziek, co2_alarm_threshold FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
-    } catch (Throwable $e) {
+        $r = $pdo->query("SELECT * FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);    } catch (Throwable $e) {
         error_log('api.php GET: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
@@ -42,8 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         'ok' => true,
         'melder' => pgBool($r['melder_aan']),
         'muziek' => pgBool($r['muziek']),
-        'co2_drempel' => (int)$r['co2_alarm_threshold']
-    ]);
+        'co2_drempel' => (int)$r['co2_alarm_threshold'],
+        'verzend_interval' => (int)($r['verzend_interval'] ?? 120)    ]);
     exit;
 }
 
@@ -76,6 +75,35 @@ if (($in['actie'] ?? '') === 'co2_drempel_inst') {
         echo json_encode(['ok' => true, 'co2_drempel' => (int)$w]);
     } catch (Throwable $e) {
         error_log('api.php co2_drempel: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Admin-pagina: hoe vaak de ESP zijn metingen doorstuurt (in seconden)
+if (($in['actie'] ?? '') === 'verzend_interval_inst') {
+    session_start();
+    if (empty($_SESSION['is_admin'])) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'fout' => 'Alleen admins mogen dit wijzigen.']);
+        exit;
+    }
+    $w = $in['verzend_interval'] ?? null;
+    if (!is_numeric($w) || (int)$w != $w || (int)$w < 10 || (int)$w > 3600) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'fout' => 'Geef een waarde tussen 10 en 3600 seconden in.']);
+        exit;
+    }
+    try {
+        $pdo->exec("ALTER TABLE melder_status ADD COLUMN IF NOT EXISTS verzend_interval integer NOT NULL DEFAULT 120");
+        $st = $pdo->prepare("UPDATE melder_status SET verzend_interval = ? WHERE id = 1");
+        $st->execute([(int)$w]);
+        if ($st->rowCount() === 0) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
+        meld($pdo, 'Verzendinterval ingesteld op ' . (int)$w . ' seconden', 'info');
+        echo json_encode(['ok' => true, 'verzend_interval' => (int)$w]);
+    } catch (Throwable $e) {
+        error_log('api.php verzend_interval: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
     }
@@ -154,9 +182,7 @@ try {
     }
 
     // Antwoord: wat jij op het dashboard/admin hebt ingesteld (ESP leest melder + co2_drempel)
-    echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek']),
-                     'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000)]);
-} catch (Throwable $e) {
+    echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek']), 'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000), 'verzend_interval' => (int)($old['verzend_interval'] ?? 120)]);} catch (Throwable $e) {
     error_log('api.php server (' . $stap . '): ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['ok' => false, 'fout' => 'server', 'stap' => $stap, 'detail' => $e->getMessage()]);

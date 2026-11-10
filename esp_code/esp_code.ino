@@ -16,8 +16,7 @@
 #define melder_id            2
 
 const int DEFAULT_CO2_ALARM_THRESHOLD = 1000;   // ppm
-const unsigned long sensorIntervalMs  = 30000;  // elke 30 s meten
-const int           samplesPerUpload  = 4;      // 4 metingen = 2 minuten
+const unsigned long DEFAULT_VERZEND_INTERVAL_MS = 120000;  // standaard elke 2 min doorsturen (admin kan dit aanpassen)
 const unsigned long snoozeMs          = 10000;  // na knop 1: 10 s stil
 const unsigned long alarmPostMinGapMs = 10000;  // min. tijd tussen alarm-posts
 const unsigned long debounceDelay     = 50;
@@ -73,11 +72,21 @@ bool alarmEventPending = false;    // alarm gestart/gestopt -> direct naar websi
 unsigned long lastAlarmPost = 0;
 bool alarmPostedBefore = false;
 
-// Meetbuffer voor de 2-minuten upload
-float sampleTemp[samplesPerUpload];
-int   sampleCo2[samplesPerUpload];
+// Verzendinterval (ingesteld op de admin-pagina) en meetbuffer voor het gemiddelde
+unsigned long verzendIntervalMs = DEFAULT_VERZEND_INTERVAL_MS;
+int   samplesPerUpload = 4;          // aantal metingen per verzending
+unsigned long sensorIntervalMs = 30000;  // tijd tussen 2 metingen (max. 30 s)
+float tempSom = 0;       // som van de temperaturen sinds de laatste verzending
+long  co2Som = 0;        // som van de CO2-waarden sinds de laatste verzending
 int   sampleCount = 0;   // geldige metingen
-int   tickCount = 0;     // aantal 30s-intervallen
+int   tickCount = 0;     // aantal meetmomenten
+
+// Verzendinterval instellen: verdeel het in metingen van max. 30 s (bv. 120 s = 4 x 30 s, 45 s = 2 x 22,5 s)
+void stelVerzendIntervalIn(unsigned long ms) {
+  verzendIntervalMs = ms;
+  samplesPerUpload = (ms + 29999) / 30000;
+  sensorIntervalMs = ms / samplesPerUpload;
+}
 
 unsigned long previousSensorMillis = 0;
 
@@ -269,6 +278,19 @@ bool postJson(const String& body) {
         }
       }
     }
+    // Nieuw verzendinterval ophalen uit de server (in seconden)
+    const String intervalSleutel = "\"verzend_interval\":";
+    int intervalPositie = response.indexOf(intervalSleutel);
+    if (intervalPositie >= 0) {
+      int nieuwInterval = response.substring(intervalPositie + intervalSleutel.length()).toInt();
+      if (nieuwInterval >= 10 && nieuwInterval <= 3600 && nieuwInterval * 1000UL != verzendIntervalMs) {
+        stelVerzendIntervalIn(nieuwInterval * 1000UL);
+        preferences.begin("brandmelder", false);
+        preferences.putInt("interval", nieuwInterval);
+        preferences.end();
+        Serial.printf("Nieuw verzendinterval opgeslagen: %d s (%d metingen)\n", nieuwInterval, samplesPerUpload);
+      }
+    }
   } else {
     Serial.println(">>> [SERVER] Fout: " + (code > 0 ? String(code) : http.errorToString(code)));
     internetVerbonden = false;
@@ -301,13 +323,13 @@ void sendMeasurements(float temp, int co2, bool alarm, bool gedempt, int aantalM
 // Gemiddelde van de verzamelde metingen versturen en buffer leegmaken
 void uploadAverage() {
   if (sampleCount > 0) {
-    float tSum = 0; long cSum = 0;
-    for (int i = 0; i < sampleCount; i++) { tSum += sampleTemp[i]; cSum += sampleCo2[i]; }
-    float tAvg = tSum / sampleCount;
-    int   cAvg = cSum / sampleCount;
+    float tAvg = tempSom / sampleCount;
+    int   cAvg = co2Som / sampleCount;
     bool situatie = vorigeAlarmSituatie;
     sendMeasurements(tAvg, cAvg, situatie, snoozeActive, sampleCount);
   }
+  tempSom = 0;
+  co2Som = 0;
   sampleCount = 0;
   tickCount = 0;
 }
@@ -328,6 +350,15 @@ void setup() {
   if (opgeslagenDrempel >= 1 && opgeslagenDrempel <= 5000) {
     co2AlarmThreshold = opgeslagenDrempel;
   }
+
+  // Laatst opgeslagen verzendinterval ophalen (in seconden)
+  preferences.begin("brandmelder", true);
+  int opgeslagenInterval = preferences.getInt("interval", DEFAULT_VERZEND_INTERVAL_MS / 1000);
+  preferences.end();
+  if (opgeslagenInterval >= 10 && opgeslagenInterval <= 3600) {
+    stelVerzendIntervalIn(opgeslagenInterval * 1000UL);
+  }
+  Serial.printf("Verzendinterval: %d s\n", (int)(verzendIntervalMs / 1000));
 
   Serial.printf("CO2-alarmdrempel: %d ppm\n", co2AlarmThreshold);
 
@@ -440,8 +471,8 @@ void loop() {
     previousSensorMillis = now;
     readSensors();
     if (temperatureAvailable && co2Available) {
-      sampleTemp[sampleCount] = temperatureC;
-      sampleCo2[sampleCount] = eco2ppm;
+      tempSom += temperatureC;
+      co2Som += eco2ppm;
       sampleCount++;
     }
     tickCount++;
@@ -469,10 +500,10 @@ void loop() {
     }
   }
 
-  // --- ELKE 4 METINGEN (2 MINUTEN) UPLOADEN ---
+    // --- NA HET VERZENDINTERVAL HET GEMIDDELDE UPLOADEN ---
   if (tickCount >= samplesPerUpload) {
     if (onlineModus) uploadAverage();
-    else { sampleCount = 0; tickCount = 0; }
+    else { tempSom = 0; co2Som = 0; sampleCount = 0; tickCount = 0; }
   }
 
   // --- WIFI HERSTEL: opnieuw verbinden als de verbinding weg is ---
