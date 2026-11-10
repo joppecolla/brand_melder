@@ -5,22 +5,58 @@ if (empty($_SESSION['gebruiker_id'])) { header('Location: login.php'); exit; }
 if (empty($_SESSION['is_admin']))     { header('Location: dashBoard.php'); exit; }
 $beginAlarm = 1000; // ppm, beginwaarde tot het bedrijf een eigen waarde ingeeft
 
-// ---------- Voorbeeldwaarden (later vervangen door echte sensordata uit de backend) ----------
-$devices = [
-    ['id' => 'BM-01', 'naam' => 'Melder Woonkamer',  'locatie' => 'Woonkamer',  'online' => true,  'batterij' => 92, 'kleur' => '#27466f',
-     'co2'  => [420, 430, 445, 440, 460, 470, 455, 465, 480, 475, 490, 480],
-     'temp' => [20.6, 20.8, 21.0, 20.9, 21.2, 21.1, 21.4, 21.3, 21.5, 21.4, 21.6, 21.5]],
-    ['id' => 'BM-02', 'naam' => 'Melder Keuken',     'locatie' => 'Keuken',     'online' => true,  'batterij' => 78, 'kleur' => '#2a9d8f',
-     'co2'  => [610, 650, 720, 810, 900, 980, 1060, 1120, 1040, 960, 900, 870],
-     'temp' => [21.8, 22.1, 22.9, 23.6, 24.2, 24.8, 25.1, 24.6, 23.9, 23.4, 23.0, 22.7]],
-    ['id' => 'BM-03', 'naam' => 'Melder Slaapkamer', 'locatie' => 'Slaapkamer', 'online' => false, 'batterij' => 34, 'kleur' => '#f4a261',
-     'co2'  => [700, 720, 740, 760, 790, 810, 830, 850, 860, 880, 890, 905],
-     'temp' => [18.9, 18.8, 18.8, 18.7, 18.6, 18.6, 18.5, 18.5, 18.4, 18.4, 18.3, 18.3]],
-];
+require 'db.php';
+date_default_timezone_set('Europe/Brussels');
 
-// Tijdstippen: om de 10 minuten, laatste meting = nu
-$tijden = [];
-for ($i = 11; $i >= 0; $i--) { $tijden[] = date('H:i', time() - $i * 600); }
+// ---------- Metingen van ALLE devices: laatste 24 uur, gemiddeld per tijdsblok ----------
+$pdo->exec("ALTER TABLE sensor_data ADD COLUMN IF NOT EXISTS melder_id text");
+$filter  = "melder_id IS NOT NULL AND created_at::timestamptz >= now() - interval '24 hours' AND co2 >= 300 AND temperatuur <> 0";
+$spanMin = (float)$pdo->query("SELECT COALESCE(EXTRACT(EPOCH FROM (max(created_at::timestamptz) - min(created_at::timestamptz))) / 60, 0)
+                               FROM sensor_data WHERE $filter")->fetchColumn();
+$blok    = $spanMin <= 90 ? 120 : ($spanMin <= 360 ? 600 : 1800);   // seconden per punt
+$historie = $pdo->query("SELECT melder_id, floor(EXTRACT(EPOCH FROM created_at::timestamptz) / $blok) * $blok AS blok,
+                                AVG(temperatuur) AS t, AVG(co2) AS c, AVG(batterij) AS bat,
+                                (array_agg(temperatuur ORDER BY created_at::timestamptz DESC))[1] AS t_laatst,
+                                (array_agg(co2 ORDER BY created_at::timestamptz DESC))[1] AS c_laatst
+                         FROM sensor_data WHERE $filter
+                         GROUP BY 1, 2 ORDER BY 2")->fetchAll(PDO::FETCH_ASSOC);
+
+// Per device een eigen lijn; alle devices delen dezelfde tijdas
+$blokken   = [];
+$perMelder = [];
+$laatste   = [];
+foreach ($historie as $rij) {
+    $t = round((float)$rij['t'], 1);
+    $c = (int)round((float)$rij['c']);
+    if ($t < -10 || $t > 60 || $c > 5000) { continue; }
+    $b = (int)$rij['blok'];
+    $blokken[$b] = date('H:i', $b);
+    $perMelder[$rij['melder_id']][$b] = [$t, $c, (int)round((float)$rij['bat'])];
+    $laatste[$rij['melder_id']] = [$b, round((float)$rij['t_laatst'], 1), (int)$rij['c_laatst']];
+}
+// Laatste punt van elk device = zijn laatst gemeten waarde (zoals op het dashboard)
+foreach ($laatste as $melder => [$b, $t, $c]) {
+    if ($t < -10 || $t > 60 || $c > 5000) { continue; }
+    $perMelder[$melder][$b][0] = $t;
+    $perMelder[$melder][$b][1] = $c;
+}
+ksort($blokken);
+uksort($perMelder, fn($a, $b) => strnatcmp((string)$a, (string)$b));   // 1, 2, 10 in de juiste volgorde
+$tijden = array_values($blokken);
+
+$kleuren = ['#e63946', '#27466f', '#2a9d8f', '#f4a261', '#8e44ad', '#6c757d'];
+$devices = [];
+$nr = 0;
+foreach ($perMelder as $melder => $punten) {
+    $devices[] = [
+        'id'       => (string)$melder,
+        'naam'     => 'Melder ' . $melder,   // admin toont gewoon het ID, niet de namen van gebruikers
+        'kleur'    => $kleuren[$nr++ % count($kleuren)],
+        'temp'     => array_map(fn($b) => $punten[$b][0] ?? null, array_keys($blokken)),
+        'co2'      => array_map(fn($b) => $punten[$b][1] ?? null, array_keys($blokken)),
+        'batterij' => array_map(fn($b) => $punten[$b][2] ?? null, array_keys($blokken)),
+    ];
+}
 
 function ico(string $n, string $extra = ''): string {
     $p = [
@@ -72,8 +108,7 @@ function ico(string $n, string $extra = ''): string {
 
         <div class="dash-wrap">
 
-            <!-- ALARMWAARDE + DEVICES -->
-            <div class="dash-top">
+            <!-- ALARMWAARDE -->
                 <section class="card">
                     <h3 class="card-title">CO₂-alarmwaarde</h3>
 
@@ -91,33 +126,10 @@ function ico(string $n, string $extra = ''): string {
                         <p class="save-msg" id="saveMsg" hidden></p>
                     </form>
                 </section>
-
-                <section class="card list-card">
-                    <h3 class="card-title">Devices</h3>
-                    <?php foreach ($devices as $d) { $laatste = end($d['co2']); ?>
-                        <div class="row device-row" data-id="<?php echo $d['id']; ?>" data-co2="<?php echo $laatste; ?>">
-                            <span class="tile sm device-tile" style="--dc: <?php echo $d['kleur']; ?>"><?php echo ico('cpu'); ?></span>
-                            <div>
-                                <strong class="device-naam"><?php echo htmlspecialchars($d['naam']); ?></strong>
-                                <form class="naam-form" hidden>
-                                    <input type="text" maxlength="40" required aria-label="Naam van <?php echo $d['id']; ?>">
-                                    <button type="submit" class="icon-btn ok" title="Naam opslaan"><?php echo ico('save'); ?></button>
-                                    <button type="button" class="icon-btn annuleer" title="Annuleren"><?php echo ico('x'); ?></button>
-                                </form>
-                                <small>
-                                    <?php if ($d['online']) { ?><i class="online"></i>Online<?php } else { ?><i class="online offline"></i>Offline<?php } ?>
-                                    • <?php echo $d['id']; ?> • Batterij <?php echo $d['batterij']; ?>%
-                                </small>
-                            </div>
-                            <button type="button" class="icon-btn bewerk" title="Naam aanpassen"><?php echo ico('pencil'); ?></button>
-                            <span class="device-co2"><span><strong><?php echo $laatste; ?></strong> <em>ppm</em></span><span class="badge"></span></span>
-                        </div>
-                    <?php } ?>
-                </section>
             </div>
 
             <!-- GRAFIEK -->
-            <div class="section-row" id="grafiek"><h3>Verloop per device</h3><span>Laatste 2 uur</span></div>
+            <div class="section-row" id="grafiek"><h3>Verloop per device</h3><span>Laatste 24 uur</span></div>
             <section class="card">
                 <div class="chart-toolbar">
                     <div class="chart-head">
@@ -154,8 +166,7 @@ function ico(string $n, string $extra = ''): string {
                 <div class="table-scroll">
                     <table class="data-table">
                         <thead>
-                            <tr><th>Tijdstip</th><th>Device</th><th>Locatie</th><th>Temperatuur</th><th>CO₂</th><th>Batterij</th><th>Status</th></tr>
-                        </thead>
+                            <tr><th>Tijdstip</th><th>Device</th><th>Temperatuur</th><th>CO₂</th><th>Batterij</th><th>Status</th></tr>                        </thead>
                         <tbody id="tabelBody"></tbody>
                     </table>
                 </div>
@@ -183,8 +194,6 @@ const tijden  = <?php echo json_encode($tijden); ?>;
 
 // Alarmwaarde wordt opgehaald uit de database via de API
 let alarm = <?php echo $beginAlarm; ?>;
-const namen = JSON.parse(localStorage.getItem('deviceNamen') || '{}');
-devices.forEach(d => { if (namen[d.id]) d.naam = namen[d.id]; });
 const esc = t => String(t).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 let meting = 'co2';
 const verborgen = new Set();
@@ -196,8 +205,7 @@ const weergave = document.getElementById('alarmWeergave');
 function toonAlarm() {
     weergave.innerHTML = `${alarm} <em>ppm</em>`;
     invoer.value = alarm;
-    tekenGrafiek(); vulTabel(); updateDevices();
-}
+    tekenGrafiek(); vulTabel();}
 function toonMelding(tekst, fout) {
     melding.textContent = tekst; melding.classList.toggle('fout', !!fout); melding.hidden = false;
 }
@@ -267,16 +275,6 @@ document.getElementById('alarmForm').addEventListener('submit', async e => {
     }
 });
 
-// ---------- Devices: badge boven/onder alarmwaarde ----------
-function updateDevices() {
-    document.querySelectorAll('.device-row').forEach(r => {
-        const b = r.querySelector('.badge');
-        const boven = Number(r.dataset.co2) >= alarm;
-        b.textContent = boven ? 'Alarm' : 'OK';
-        b.className = 'badge ' + (boven ? 'alarm' : 'ok');
-    });
-}
-
 // ---------- Grafiek (SVG, zelfde stijl als dashboard) ----------
 const NS = 'http://www.w3.org/2000/svg';
 function el(naam, attr, tekst) {
@@ -291,15 +289,19 @@ function tekenGrafiek() {
     svg.replaceChildren();
     const B = 840, H = 300, L = 48, R = 16, T = 16, Bo = 30;
     const zichtbaar = devices.filter(d => !verborgen.has(d.id));
-    let alle = zichtbaar.flatMap(d => d[meting]);
+    const n = tijden.length;
+    if (!n) {
+        svg.append(el('text', {x: B / 2, y: H / 2, 'text-anchor': 'middle', class: 'axis'}, 'Nog geen metingen in de laatste 24 uur'));
+        return;
+    }
+    let alle = zichtbaar.flatMap(d => d[meting]).filter(v => v !== null);
     if (meting === 'co2') alle.push(alarm);
     if (!alle.length) alle = [0, 1];
     const spreiding = Math.max(...alle) - Math.min(...alle) || 1;
     const stap = meting === 'co2' ? 50 : 0.5;
     let min = Math.floor((Math.min(...alle) - spreiding * .1) / stap) * stap;
     let max = min + Math.ceil((Math.max(...alle) + spreiding * .1 - min) / (4 * stap)) * 4 * stap;
-    const n = tijden.length;
-    const x = i => L + (B - L - R) * i / (n - 1);
+    const x = i => L + (B - L - R) * (n === 1 ? .5 : i / (n - 1));
     const y = v => T + (H - T - Bo) * (1 - (v - min) / (max - min));
 
     for (let k = 0; k < 5; k++) {
@@ -309,7 +311,9 @@ function tekenGrafiek() {
         svg.append(el('text', {x: L - 8, y: yy + 4, 'text-anchor': 'end', class: 'axis'}, meting === 'co2' ? Math.round(val) : val.toFixed(1)));
     }
     tijden.forEach((t, i) => {
-        if (i % 2 === 1 && i !== n - 1) return;
+        // Ongeveer 7 uren onderaan, zodat ze niet over elkaar staan
+        const elke = Math.max(1, Math.ceil(n / 7));
+        if (i !== n - 1 && (i % elke !== 0 || n - 1 - i < elke / 2)) return;
         svg.append(el('text', {x: x(i), y: H - 8, 'text-anchor': 'middle', class: 'axis'}, i === n - 1 ? 'nu' : t));
     });
 
@@ -320,23 +324,22 @@ function tekenGrafiek() {
     }
 
     zichtbaar.forEach(d => {
-        const p = d[meting].map((v, i) => [x(i), y(v)]);
+        // Alleen tijdsblokken waarin dit device gemeten heeft
+        const p = d[meting].map((v, i) => v === null ? null : [x(i), y(v), v, i]).filter(Boolean);
+        if (!p.length) return;
         let pad = `M${p[0][0].toFixed(1)},${p[0][1].toFixed(1)}`;
         for (let i = 1; i < p.length; i++) {
             const cx = ((p[i - 1][0] + p[i][0]) / 2).toFixed(1);
             pad += ` C${cx},${p[i - 1][1].toFixed(1)} ${cx},${p[i][1].toFixed(1)} ${p[i][0].toFixed(1)},${p[i][1].toFixed(1)}`;
         }
         svg.append(el('path', {d: pad, fill: 'none', stroke: d.kleur, 'stroke-width': 3, 'stroke-linecap': 'round', class: 'line', pathLength: 1}));
-        d[meting].forEach((v, i) => {
+        p.forEach(([px, py, v, i]) => {
             const boven = meting === 'co2' && v >= alarm;
-            const c = el('circle', {cx: p[i][0], cy: p[i][1], r: boven ? 5 : 3.5, fill: boven ? 'var(--red)' : '#fff', stroke: boven ? '#fff' : d.kleur, 'stroke-width': 2, class: 'punt'});
+            const c = el('circle', {cx: px, cy: py, r: boven ? 5 : 3.5, fill: boven ? 'var(--red)' : '#fff', stroke: boven ? '#fff' : d.kleur, 'stroke-width': 2, class: 'punt'});
             c.append(el('title', {}, `${d.naam} • ${tijden[i]} • ${v} ${meting === 'co2' ? 'ppm' : '°C'}`));
             svg.append(c);
         });
     });
-
-    document.getElementById('grafiekLabel').textContent = meting === 'co2' ? 'CO₂-gehalte (ppm)' : 'Temperatuur (°C)';
-    document.getElementById('grafiekTitel').textContent = zichtbaar.length === devices.length ? 'Alle devices' : `${zichtbaar.length} van ${devices.length} devices`;
 }
 
 // Legende: klik om een device te verbergen/tonen
@@ -391,14 +394,12 @@ function vulTabel() {
     document.getElementById('tabelTeller').textContent = `${rijen.length} metingen • ${aantalAlarm} boven alarmwaarde`;
 }
 
-// ---------- Devicenamen aanpassen (voorlopig enkel lokaal bewaard) ----------
+// ---------- Namen in de legende en de keuzelijst zetten ----------
 function vernieuwNamen() {
     devices.forEach(d => {
         d.legendeLabel.textContent = d.naam;
         filter.querySelector(`option[value="${d.id}"]`).textContent = d.naam;
-        document.querySelector(`.device-row[data-id="${d.id}"] .device-naam`).textContent = d.naam;
     });
-    tekenGrafiek(); vulTabel();
 }
 
 document.querySelectorAll('.device-row').forEach(r => {
