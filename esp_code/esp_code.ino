@@ -13,7 +13,7 @@
 #define TEMP_ALARM_THRESHOLD 35.0   // °C
 #define CO2_HYSTERESE        50     // alarm stopt pas onder (drempel - 50) ppm
 #define TEMP_HYSTERESE       1.0    // alarm stopt pas onder (drempel - 1) °C
-#define melder_id            1
+#define melder_id            2
 
 const int DEFAULT_CO2_ALARM_THRESHOLD = 1000;   // ppm
 const unsigned long sensorIntervalMs  = 30000;  // elke 30 s meten

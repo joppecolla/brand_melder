@@ -65,7 +65,10 @@ $st->execute($gebruiker);
 $spanMin = (float)$st->fetchColumn();
 $blok = $spanMin <= 90 ? 120 : ($spanMin <= 360 ? 600 : 1800);   // seconden per punt
 $st = $pdo->prepare("SELECT melder_id, floor(EXTRACT(EPOCH FROM created_at::timestamptz) / $blok) * $blok AS blok,
-                            AVG(temperatuur) AS t, AVG(co2) AS c
+                            AVG(temperatuur) AS t, AVG(co2) AS c,
+                            (array_agg(temperatuur ORDER BY created_at::timestamptz DESC))[1] AS t_laatst,
+                            (array_agg(co2 ORDER BY created_at::timestamptz DESC))[1] AS c_laatst,
+                            EXTRACT(EPOCH FROM max(created_at::timestamptz)) AS laatst_op
                      FROM sensor_data WHERE $filter
                      GROUP BY 1, 2 ORDER BY 2");
 $st->execute($gebruiker);
@@ -74,6 +77,7 @@ $historie = $st->fetchAll(PDO::FETCH_ASSOC);
 // Per melder een eigen lijn; alle melders delen dezelfde tijdas
 $blokken   = [];
 $perMelder = [];
+$laatste   = [];   // per melder: zijn laatste meting (uit het laatste tijdsblok)
 foreach ($historie as $rij) {
     $t = round((float)$rij['t'], 1);
     $c = (int)round((float)$rij['c']);
@@ -81,8 +85,15 @@ foreach ($historie as $rij) {
     $b = (int)$rij['blok'];
     $blokken[$b] = date('H:i', $b);
     $perMelder[$rij['melder_id']][$b] = [$t, $c];
+    $laatste[$rij['melder_id']] = [$b, round((float)$rij['t_laatst'], 1), (int)$rij['c_laatst'], date('H:i', (int)$rij['laatst_op'])];
 }
-
+// Laatste punt van elke lijn: de laatst gemeten waarde in plaats van het gemiddelde
+$laatsteTijd = [];
+foreach ($laatste as $melder => [$b, $t, $c, $tijd]) {
+    if ($t < -10 || $t > 60 || $c > 5000) { continue; }
+    $perMelder[$melder][$b] = [$t, $c];
+    $laatsteTijd[$melder] = $tijd;
+}
 ksort($blokken);
 $tijdReeks = array_values($blokken);
 // Elke melder een vaste kleur (zelfde volgorde als in "Mijn melders"), met zijn eigen naam
@@ -95,9 +106,10 @@ foreach ($mijnMelderLijst as $melder => $naam) {
     $kleur = $kleurVan[$melder] = $kleuren[$nr++ % count($kleuren)];
     if (!isset($perMelder[$melder])) { continue; }
     $punten = $perMelder[$melder];
-    $tempLijnen[] = ['naam' => $naam, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][0] ?? null, array_keys($blokken))];
-    $co2Lijnen[]  = ['naam' => $naam, 'kleur' => $kleur, 'waarden' => array_map(fn($b) => $punten[$b][1] ?? null, array_keys($blokken))];
-}
+        $tijd   = $laatsteTijd[$melder] ?? null;
+    $tempLijnen[] = ['naam' => $naam, 'kleur' => $kleur, 'laatsteTijd' => $tijd, 'waarden' => array_map(fn($b) => $punten[$b][0] ?? null, array_keys($blokken))];
+    $co2Lijnen[]  = ['naam' => $naam, 'kleur' => $kleur, 'laatsteTijd' => $tijd, 'waarden' => array_map(fn($b) => $punten[$b][1] ?? null, array_keys($blokken))];
+    }
 // Met maar één melder houden de grafieken hun eigen kleur (rood / blauw)
 if (count($tempLijnen) === 1) { $tempLijnen[0]['kleur'] = '#e63946'; $co2Lijnen[0]['kleur'] = '#27466f'; }
 // Test de alarm-weergave met dashBoard.php?demo=rook
@@ -297,10 +309,14 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
     foreach ($lijnen as $nr => $lijn) {
         $kleur = $lijn['kleur'];
         $xy = [];
+        $gemeten = array_keys(array_filter($lijn['waarden'], fn($v) => $v !== null));
+        $laatsteI = $gemeten ? max($gemeten) : -1;
         foreach ($lijn['waarden'] as $i => $v) {
             if ($v === null) { continue; }
             $xy[] = [$x($i), $y($v)];
-            $punten[] = ['x' => round($x($i), 1), 'y' => round($y($v), 1), 'w' => $v, 't' => $labels[$i] ?? '', 'naam' => $lijn['naam'], 'kleur' => $kleur];
+            // Bij het laatste punt het echte uur van de laatste meting tonen
+            $tijd = ($i === $laatsteI && !empty($lijn['laatsteTijd'])) ? $lijn['laatsteTijd'] : ($labels[$i] ?? '');
+            $punten[] = ['x' => round($x($i), 1), 'y' => round($y($v), 1), 'w' => $v, 't' => $tijd, 'naam' => $lijn['naam'], 'kleur' => $kleur];
         }
         if (!$xy) { continue; }
 
