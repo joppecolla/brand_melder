@@ -126,7 +126,6 @@ function ico(string $n, string $extra = ''): string {
                         <p class="save-msg" id="saveMsg" hidden></p>
                     </form>
                 </section>
-            </div>
 
             <!-- GRAFIEK -->
             <div class="section-row" id="grafiek"><h3>Verloop per device</h3><span>Laatste 24 uur</span></div>
@@ -340,6 +339,9 @@ function tekenGrafiek() {
             svg.append(c);
         });
     });
+
+    document.getElementById('grafiekLabel').textContent = meting === 'co2' ? 'CO₂-gehalte (ppm)' : 'Temperatuur (°C)';
+    document.getElementById('grafiekTitel').textContent = zichtbaar.length === devices.length ? 'Alle devices' : `${zichtbaar.length} van ${devices.length} devices`;
 }
 
 // Legende: klik om een device te verbergen/tonen
@@ -373,7 +375,7 @@ function vulTabel() {
     const rijen = [];
     devices.forEach(d => {
         if (filter.value !== 'alle' && filter.value !== d.id) return;
-        tijden.forEach((t, i) => rijen.push({t, i, d}));
+        tijden.forEach((t, i) => { if (d.co2[i] !== null) rijen.push({t, i, d}); });
     });
     rijen.sort((a, b) => b.i - a.i || a.d.id.localeCompare(b.d.id));
     rijen.forEach(({t, i, d}) => {
@@ -382,11 +384,10 @@ function vulTabel() {
         if (boven) tr.className = 'is-alarm';
         tr.innerHTML = `
             <td>${i === tijden.length - 1 ? '<strong>' + t + '</strong> <small>nu</small>' : t}</td>
-            <td><span class="dev-dot" style="background:${d.kleur}"></span>${esc(d.naam)}<small class="dev-id">${d.id}</small></td>
-            <td>${d.locatie}</td>
+            <td><span class="dev-dot" style="background:${d.kleur}"></span>${esc(d.naam)}</td>
             <td>${d.temp[i].toFixed(1)} °C</td>
             <td><strong>${co2}</strong> ppm</td>
-            <td>${d.batterij}%</td>
+            <td>${d.batterij[i]}%</td>
             <td><span class="badge ${boven ? 'alarm' : 'ok'}">${boven ? 'Boven alarm' : 'OK'}</span></td>`;
         body.append(tr);
     });
@@ -401,28 +402,7 @@ function vernieuwNamen() {
         filter.querySelector(`option[value="${d.id}"]`).textContent = d.naam;
     });
 }
-
-document.querySelectorAll('.device-row').forEach(r => {
-    const d = devices.find(x => x.id === r.dataset.id);
-    const form = r.querySelector('.naam-form'), naamEl = r.querySelector('.device-naam');
-    const bewerk = r.querySelector('.bewerk'), veld = form.querySelector('input');
-    const sluit = () => { form.hidden = true; naamEl.hidden = false; bewerk.hidden = false; };
-    bewerk.addEventListener('click', () => {
-        form.hidden = false; naamEl.hidden = true; bewerk.hidden = true;
-        veld.value = d.naam; veld.focus(); veld.select();
-    });
-    form.querySelector('.annuleer').addEventListener('click', sluit);
-    veld.addEventListener('keydown', e => { if (e.key === 'Escape') sluit(); });
-    form.addEventListener('submit', e => {
-        e.preventDefault();
-        const naam = veld.value.trim();
-        if (!naam) return;
-        d.naam = naam; namen[d.id] = naam;
-        localStorage.setItem('deviceNamen', JSON.stringify(namen));
-        sluit(); vernieuwNamen();
-    });
-});
-
+ 
 vernieuwNamen();
 toonAlarm();
 laadAlarm();
