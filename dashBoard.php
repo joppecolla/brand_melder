@@ -414,37 +414,17 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
         <div class="dash-wrap">
 
             <!-- STATUS + OVERZICHT -->
-            <div class="dash-top">
-                <section class="card status-hero <?php echo $niveau; ?>" id="status-hero">
-                    <div class="gauge">
-                        <svg viewBox="0 0 120 120" aria-hidden="true">
-                            <circle cx="60" cy="60" r="52" class="gauge-bg" pathLength="100"/>
-                            <circle cx="60" cy="60" r="52" class="gauge-ring" pathLength="100"/>
-                        </svg>
-                        <span class="gauge-core"><?php echo ico($niveau === 'uit' ? 'power' : 'flame'); ?></span>
-                    </div>
-                    <h2><?php echo $titel; ?></h2>
-                    <p><?php echo $sub; ?></p>
-                </section>
-
-                <section class="card list-card" id="systeem-card">
-                    <h3 class="card-title">Systeem</h3>
-                    <div class="row" id="status-row">
-                        <span class="tile <?php echo $niveau; ?>"><?php echo ico('shield'); ?></span>
-                        <div><small>Status</small><strong class="txt-<?php echo $niveau; ?>"><?php echo $systeemStatus; ?></strong></div>
-                        <?php echo ico('chev', 'chev'); ?>
-                    </div>
-                    <div class="row" id="batterij-row">
-                        <span class="tile"><?php echo ico('battery'); ?></span>
-                        <div><small>Batterij</small><strong><?php echo $batterij; ?>%</strong>
-                            <div class="bar"><i style="width:<?php echo $batterij; ?>%"></i></div></div>
-                        <?php echo ico('chev', 'chev'); ?>
-                    </div>
-                    <div class="row" id="verbinding-row">
-                        <span class="tile"><?php echo ico('wifi'); ?></span>
-                        <div><small>Verbinding</small><strong><i class="<?php echo $onlineKleur; ?>"></i><?php echo $verbinding; ?></strong><small><?php echo htmlspecialchars($verbindingDetail); ?></small></div>                    </div>
-                </section>
-            </div>
+            <section class="card status-hero <?php echo $niveau; ?>" id="status-hero">
+                <div class="gauge">
+                    <svg viewBox="0 0 120 120" aria-hidden="true">
+                        <circle cx="60" cy="60" r="52" class="gauge-bg" pathLength="100"/>
+                        <circle cx="60" cy="60" r="52" class="gauge-ring" pathLength="100"/>
+                    </svg>
+                    <span class="gauge-core"><?php echo ico($niveau === 'uit' ? 'power' : 'flame'); ?></span>
+                </div>
+                <h2><?php echo $titel; ?></h2>
+                <p><?php echo $sub; ?></p>
+            </section>
 
             <!-- METINGEN -->
             <div class="section-row" id="grafieken"><h3>Metingen</h3><span>Laatste 24 uur · gemiddelde per <?php echo (int)($blok / 60); ?> min</span></div>
@@ -627,13 +607,12 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
             }
 
             // 3. Update Systeem Card Rows & Grafieken
-            const elementenToUpdate = ['status-row', 'batterij-row', 'verbinding-row', 'temp-chart', 'co2-chart', 'live-pill', 'meldingen-card'];
-            elementenToUpdate.forEach(id => {
-                const nieuwEl = doc.getElementById(id);
-                const huidigEl = document.getElementById(id);
-                // Grafiek niet vervangen zolang de muis erboven hangt
-                // Grafiek niet vervangen zolang er een punt aangeduid is (muis of vinger)
-                if (nieuwEl && huidigEl && nieuwEl.innerHTML !== huidigEl.innerHTML && !huidigEl.querySelector('[data-standaard]')) {}
+            const elementenToUpdate = ['temp-chart', 'co2-chart', 'live-pill', 'meldingen-card'];            elementenToUpdate.forEach(id => {
+            const nieuwEl = doc.getElementById(id);
+            const huidigEl = document.getElementById(id);
+            // Grafiek niet vervangen zolang de muis erboven hangt
+            // Grafiek niet vervangen zolang er een punt aangeduid is (muis of vinger)
+            if (nieuwEl && huidigEl && nieuwEl.innerHTML !== huidigEl.innerHTML && !huidigEl.querySelector('[data-standaard]')) {}
             });
 
         } catch (error) {
