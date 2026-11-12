@@ -210,7 +210,15 @@ try {
     }
 
     // Antwoord: wat jij op het dashboard/admin hebt ingesteld (ESP leest melder + co2_drempel)
-    echo json_encode(['ok' => true, 'melder' => pgBool($old['melder_aan']), 'muziek' => pgBool($old['muziek']), 'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000), 'verzend_interval' => (int)($old['verzend_interval'] ?? 120)]);} catch (Throwable $e) {
+    echo json_encode([
+        'ok' => true,
+        'melder' => pgBool($old['melder_aan']),
+        'muziek' => pgBool($old['muziek']),
+        'gekozen_liedje' => (int)$old['gekozen_liedje'],
+        'muziek_commando' => $old['muziek_commando'],
+        'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000),
+        'verzend_interval' => (int)($old['verzend_interval'] ?? 120)
+    ]);    
     error_log('api.php server (' . $stap . '): ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['ok' => false, 'fout' => 'server', 'stap' => $stap, 'detail' => $e->getMessage()]);
