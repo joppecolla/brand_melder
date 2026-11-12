@@ -53,34 +53,6 @@ if (!is_array($in)) {
     exit;
 }
 
-// Admin-pagina: nieuwe CO2-drempel opslaan (dit is GEEN bericht van de ESP)
-if (($in['actie'] ?? '') === 'co2_drempel_inst') {
-        session_start();
-    if (empty($_SESSION['is_admin'])) {
-        http_response_code(403);
-        echo json_encode(['ok' => false, 'fout' => 'Alleen admins mogen dit wijzigen.']);
-        exit;
-    }
-    $w = $in['co2_drempel'] ?? null;
-    if (!is_numeric($w) || (int)$w != $w || (int)$w < 1 || (int)$w > 5000) {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'fout' => 'Geef een waarde tussen 1 en 5000 ppm in.']);
-        exit;
-    }
-    try {
-        $st = $pdo->prepare("UPDATE melder_status SET co2_alarm_threshold = ? WHERE id = 1");
-        $st->execute([(int)$w]);
-        if ($st->rowCount() === 0) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
-        meld($pdo, 'CO₂-alarmwaarde ingesteld op ' . (int)$w . ' ppm', 'info');
-        echo json_encode(['ok' => true, 'co2_drempel' => (int)$w]);
-    } catch (Throwable $e) {
-        error_log('api.php co2_drempel: ' . $e->getMessage());
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
-    }
-    exit;
-}
-
 // Admin-pagina: hoe vaak de ESP zijn metingen doorstuurt (in seconden)
 if (($in['actie'] ?? '') === 'verzend_interval_inst') {
     session_start();
@@ -209,17 +181,31 @@ try {
             ->execute([$melderId, $status, $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
     }
 
-    // Antwoord: wat jij op het dashboard/admin hebt ingesteld (ESP leest melder + co2_drempel)
+        // Antwoord: wat jij op het dashboard/admin hebt ingesteld
     echo json_encode([
         'ok' => true,
         'melder' => pgBool($old['melder_aan']),
         'muziek' => pgBool($old['muziek']),
-        'gekozen_liedje' => (int)$old['gekozen_liedje'],
-        'muziek_commando' => $old['muziek_commando'],
+        'gekozen_liedje' => (int)($old['gekozen_liedje'] ?? 0),
+        'muziek_commando' => ($old['muziek_commando'] ?? ''),
+        'volume' => (int)($old['volume'] ?? 25),
         'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000),
         'verzend_interval' => (int)($old['verzend_interval'] ?? 120)
-    ]);    
-    error_log('api.php server (' . $stap . '): ' . $e->getMessage());
+    ]);
+
+} catch (Throwable $e) {
+
+    error_log(
+        'api.php server (' . $stap . '): ' .
+        $e->getMessage()
+    );
+
     http_response_code(500);
-    echo json_encode(['ok' => false, 'fout' => 'server', 'stap' => $stap, 'detail' => $e->getMessage()]);
+
+    echo json_encode([
+        'ok' => false,
+        'fout' => 'server',
+        'stap' => $stap,
+        'detail' => $e->getMessage()
+    ]);
 }
