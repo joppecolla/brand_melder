@@ -165,6 +165,7 @@ case 'speel_liedje':
     $pdo->prepare(
         "UPDATE melder_status
          SET gekozen_liedje = ?
+             muziek = true
          WHERE id = 1"
     )->execute([$liedje]);
 
