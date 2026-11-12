@@ -109,6 +109,34 @@ if (($in['actie'] ?? '') === 'verzend_interval_inst') {
     }
     exit;
 }
+if (($in['actie'] ?? '') === 'verzend_interval_inst') {
+    session_start();
+    if (empty($_SESSION['is_admin'])) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'fout' => 'Alleen admins mogen dit wijzigen.']);
+        exit;
+    }
+    $w = $in['verzend_interval'] ?? null;
+    if (!is_numeric($w) || (int)$w != $w || (int)$w < 10 || (int)$w > 3600) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'fout' => 'Geef een waarde tussen 10 en 3600 seconden in.']);
+        exit;
+    }
+    try {
+        $pdo->exec("ALTER TABLE melder_status ADD COLUMN IF NOT EXISTS verzend_interval integer NOT NULL DEFAULT 120");
+        $st = $pdo->prepare("UPDATE melder_status SET verzend_interval = ? WHERE id = 1");
+        $st->execute([(int)$w]);
+        if ($st->rowCount() === 0) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
+        meld($pdo, 'Verzendinterval ingesteld op ' . (int)$w . ' seconden', 'info');
+        echo json_encode(['ok' => true, 'verzend_interval' => (int)$w]);
+    } catch (Throwable $e) {
+        error_log('api.php verzend_interval: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+    }
+    exit;
+}
+
 
 $stap = 'start';
 try {
