@@ -133,6 +133,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 meld($pdo, 'Muziekalarm gestopt', 'info');
             }
             break;
+        case 'volume':
+
+    $volume = max(
+        0,
+        min(
+            30,
+            (int)($_POST['volume'] ?? 25)
+        )
+    );
+
+    $pdo->prepare(
+        "UPDATE melder_status
+         SET volume = ?
+         WHERE id = 1"
+    )->execute([$volume]);
+
+    break;
+
+
+case 'speel_liedje':
+
+    $liedje = max(
+        1,
+        min(
+            14,
+            (int)($_POST['liedje'] ?? 1)
+        )
+    );
+
+    $pdo->prepare(
+        "UPDATE melder_status
+         SET gekozen_liedje = ?
+         WHERE id = 1"
+    )->execute([$liedje]);
+
+    break;
+
+
+case 'volgend':
+
+    $pdo->exec(
+        "UPDATE melder_status
+         SET muziek_commando='next'
+         WHERE id=1"
+    );
+
+    break;
+
+
+case 'vorig':
+
+    $pdo->exec(
+        "UPDATE melder_status
+         SET muziek_commando='prev'
+         WHERE id=1"
+    );
+
+    break;
         case 'melder_uit':
             if ($pdo->exec("UPDATE melder_status SET melder_aan = false, muziek = false WHERE id = 1 AND melder_aan = true")) {
                 meld($pdo, 'Uitzetten aangevraagd via dashboard', 'info');
@@ -456,6 +514,84 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
                     <form method="post" class="btn-pair">
                         <button name="actie" value="muziek_aan" class="ctrl-btn primary" <?php echo (!$staat['melder'] || $staat['muziek']) ? 'disabled' : ''; ?>><?php echo ico('play'); ?>Muziek aan</button>
                         <button name="actie" value="muziek_uit" class="ctrl-btn" <?php echo !$staat['muziek'] ? 'disabled' : ''; ?>><?php echo ico('stop'); ?>Muziek uit</button>
+                    </form>
+
+                    <div class="divider"></div>
+
+                    <h4>Volume</h4>
+                    
+                    <form method="post" class="btn-pair">
+                    
+                        <input
+                            type="number"
+                            name="volume"
+                            min="0"
+                            max="30"
+                            value="25"
+                            style="width:80px;padding:8px;"
+                        >
+                    
+                        <button
+                            type="submit"
+                            name="actie"
+                            value="volume"
+                            class="ctrl-btn primary"
+                        >
+                            Volume instellen
+                        </button>
+                    
+                    </form>
+
+                    <div class="divider"></div>
+
+                    <h4>Liedje kiezen</h4>
+                    
+                    <form method="post" class="btn-pair">
+                    
+                        <input
+                            type="number"
+                            name="liedje"
+                            min="1"
+                            max="14"
+                            placeholder="1-14"
+                            style="width:80px;padding:8px;"
+                        >
+                    
+                        <button
+                            type="submit"
+                            name="actie"
+                            value="speel_liedje"
+                            class="ctrl-btn primary"
+                        >
+                            Afspelen
+                        </button>
+
+                        <div class="divider"></div>
+
+                        <h4>Besturing</h4>
+                        
+                        <form method="post" class="btn-pair">
+                        
+                            <button
+                                type="submit"
+                                name="actie"
+                                value="vorig"
+                                class="ctrl-btn"
+                            >
+                                ⏮ Vorig
+                            </button>
+                        
+                            <button
+                                type="submit"
+                                name="actie"
+                                value="volgend"
+                                class="ctrl-btn"
+                            >
+                                ⏭ Volgend
+                            </button>
+                        
+                        </form>
+                    
                     </form>
 
                     <div class="divider"></div>
