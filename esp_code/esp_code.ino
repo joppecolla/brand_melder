@@ -79,14 +79,13 @@ bool alarmEventPending = false;
 unsigned long lastAlarmPost = 0;
 bool alarmPostedBefore = false;
 
-// muziek
+// Muziek & Volume
 bool remoteMusic = false;
 bool musicStarted = false;
 int gekozenLiedje = 0;
-int vorigGekozenLiedje = 0;
-
-String muziekCommando = "";
-String vorigMuziekCommando = "";
+int vorigGekozenLiedje = -1; 
+int huidigVolume = 25;
+int vorigVolume = -1;
 
 // Meetbuffer voor de 2-minuten upload
 float sampleTemp[samplesPerUpload];
@@ -222,16 +221,14 @@ bool postJson(const String& body) {
 
     if (response.indexOf("\"melder\":false") != -1)      setMelderAan(false);
     else if (response.indexOf("\"melder\":true") != -1)  setMelderAan(true);
+    
     if (response.indexOf("\"muziek\":true") != -1) {
-
       if (!remoteMusic) {
         remoteMusic = true;
         musicStarted = false;
       }
-
     }
     else if (response.indexOf("\"muziek\":false") != -1) {
-
       remoteMusic = false;
       musicStarted = false;
 
@@ -240,41 +237,38 @@ bool postJson(const String& body) {
       }
     }
 
-    // gekozen liedje
-
+    // Gekozen liedje uitlezen
     const String liedjeKey = "\"gekozen_liedje\":";
-
     int liedjePos = response.indexOf(liedjeKey);
 
     if (liedjePos >= 0) {
-
       int begin = liedjePos + liedjeKey.length();
-
       int einde = response.indexOf(',', begin);
-
-      if (einde < 0)
-        einde = response.indexOf('}', begin);
-
-      gekozenLiedje =
-        response.substring(begin, einde).toInt();
-    }
-    // muziek commando
-
-    const String cmdKey = "\"muziek_commando\":\"";
-
-    int cmdPos = response.indexOf(cmdKey);
-
-    if(cmdPos >= 0) {
-
-      int begin = cmdPos + cmdKey.length();
-
-      int einde = response.indexOf('"', begin);
-
-      muziekCommando =
-          response.substring(begin, einde);
+      if (einde < 0) einde = response.indexOf('}', begin);
+      gekozenLiedje = response.substring(begin, einde).toInt();
     }
 
+    // Volume uitlezen
+    const String volKey = "\"volume\":";
+    int volPos = response.indexOf(volKey);
 
+    if (volPos >= 0) {
+      int begin = volPos + volKey.length();
+      int einde = response.indexOf(',', begin);
+      if (einde < 0) einde = response.indexOf('}', begin);
+      huidigVolume = response.substring(begin, einde).toInt();
+
+      if (huidigVolume != vorigVolume) {
+        if (huidigVolume >= 0 && huidigVolume <= 30) {
+          dfPlayer.volume(huidigVolume);
+          vorigVolume = huidigVolume;
+          Serial.print(">>> [MP3] Volume aangepast via dashboard: ");
+          Serial.println(huidigVolume);
+        }
+      }
+    }
+
+    // CO2-drempel uitlezen
     const String sleutel = "\"co2_drempel\":";
     int positie = response.indexOf(sleutel);
 
@@ -335,9 +329,7 @@ void uploadAverage() {
 
 void playRandomSong() {
   int willekeurigNummer = random(1, totaalAantalLiedjes + 1);
-
   dfPlayer.play(willekeurigNummer);
-
   Serial.print(">>> [MP3] Willekeurig liedje gestart: ");
   Serial.println(willekeurigNummer);
 }
@@ -351,7 +343,7 @@ void setup() {
     Serial.println("DFPlayer Mini kon niet worden gestart! Controleer de bedrading.");
   } else {
     Serial.println("DFPlayer Mini online!");
-    dfPlayer.volume(25); 
+    dfPlayer.volume(huidigVolume); 
   }
 
   preferences.begin("brandmelder", true);
@@ -471,102 +463,35 @@ void loop() {
   bool nieuwAlarmAan = melderAan && ((overDrempel && !snoozeActive) || manualAlarm);
 
   // ===== ALARM =====
-
-if (nieuwAlarmAan) {
-
-    if (!alarmAan ||
-        (now - lastSongStart >= songIntervalMs)) {
-
-        playRandomSong();
-
-        lastSongStart = now;
+  if (nieuwAlarmAan) {
+    if (!alarmAan || (now - lastSongStart >= songIntervalMs)) {
+      playRandomSong();
+      lastSongStart = now;
     }
-}
-
-// ===== MUZIEK VIA WEBSITE =====
-
-else if (remoteMusic) {
-
-    if (gekozenLiedje > 0 &&
-        (!musicStarted ||
-         gekozenLiedje != vorigGekozenLiedje)) {
-
-        dfPlayer.play(gekozenLiedje);
-
-        vorigGekozenLiedje =
-            gekozenLiedje;
-
-        musicStarted = true;
-
-        Serial.print(">>> Liedje gestart: ");
-        Serial.println(gekozenLiedje);
+  }
+  // ===== MUZIEK VIA WEBSITE =====
+  else if (remoteMusic) {
+    if (gekozenLiedje > 0 && gekozenLiedje != vorigGekozenLiedje) {
+      dfPlayer.play(gekozenLiedje);
+      vorigGekozenLiedje = gekozenLiedje;
+      musicStarted = true;
+      
+      Serial.print(">>> [MP3] Liedje gestart via dashboard: ");
+      Serial.println(gekozenLiedje);
     }
-
     else if (!musicStarted) {
-
-        playRandomSong();
-
-        musicStarted = true;
+      playRandomSong();
+      musicStarted = true;
     }
-
-    if (muziekCommando != vorigMuziekCommando) {
-
-        vorigMuziekCommando =
-            muziekCommando;
-
-        if (muziekCommando == "next") {
-
-            dfPlayer.next();
-
-            Serial.println(
-                ">>> Volgend liedje"
-            );
-        }
-
-        else if (muziekCommando == "prev") {
-
-            dfPlayer.previous();
-
-            Serial.println(
-                ">>> Vorig liedje"
-            );
-        }
-
-        else if (muziekCommando == "pause") {
-
-            dfPlayer.pause();
-
-            Serial.println(
-                ">>> Muziek gepauzeerd"
-            );
-        }
-
-        else if (muziekCommando == "resume") {
-
-            dfPlayer.start();
-
-            Serial.println(
-                ">>> Muziek hervat"
-            );
-        }
-    }
-}
-
-// ===== ALLES UIT =====
-
-else {
-
+  }
+  // ===== ALLES UIT =====
+  else {
     if (alarmAan) {
-
-        dfPlayer.pause();
-
-        Serial.println(
-            ">>> [MP3] Muziek gestopt."
-        );
+      dfPlayer.pause();
+      Serial.println(">>> [MP3] Muziek gestopt.");
     }
-
     musicStarted = false;
-}
+  }
   
   alarmAan = nieuwAlarmAan;
 
