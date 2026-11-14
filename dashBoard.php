@@ -144,12 +144,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
 
         case 'volgend':
-            // Automatisch +1 en terug naar 1 als hij boven de 14 komt (max 14 liedjes)
             $pdo->exec("UPDATE melder_status SET gekozen_liedje = CASE WHEN gekozen_liedje + 1 > 14 THEN 1 ELSE gekozen_liedje + 1 END WHERE id = 1");
             break;
 
         case 'vorig':
-            // Automatisch -1 en terug naar 14 als hij onder de 1 komt
             $pdo->exec("UPDATE melder_status SET gekozen_liedje = CASE WHEN gekozen_liedje - 1 < 1 THEN 14 ELSE gekozen_liedje - 1 END WHERE id = 1");
             break;
 
@@ -184,7 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ---------- 4. Toestand van de melder zoals de melder zelf die doorgeeft ----------
 try {
-$ms = $pdo->query("SELECT melder_aan, muziek, apparaat_aan, apparaat_modus, alarm_actief, alarm_gedempt, alarm_reden, volume, gekozen_liedje,
+    $ms = $pdo->query("SELECT melder_aan, muziek, apparaat_aan, apparaat_modus, alarm_actief, alarm_gedempt, alarm_reden, volume, gekozen_liedje,
                              EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden
                       FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
     $rijen = $pdo->query("SELECT tekst, niveau, (created_at AT TIME ZONE 'Europe/Brussels') AS lokaal
@@ -193,11 +191,15 @@ $ms = $pdo->query("SELECT melder_aan, muziek, apparaat_aan, apparaat_modus, alar
     die("Database niet klaar: voer eerst setup.sql uit in Neon. (" . $e->getMessage() . ")");
 }
 
+// Actuele waardes ophalen uit de database om in de invoervelden te tonen
+$actueelVolume = (int)($ms['volume'] ?? 25);
+$actueelLiedje = (int)($ms['gekozen_liedje'] ?? 1);
+
 $staat        = ['melder' => pgBool($ms['melder_aan']), 'muziek' => pgBool($ms['muziek'])];
 $apparaatAan  = pgBool($ms['apparaat_aan']);
 $lokaal       = ($ms['apparaat_modus'] === 'lokaal');
 $seconden     = $ms['seconden'] !== null ? (float)$ms['seconden'] : null;
-$contactVers  = ($seconden !== null && $seconden <= 90);   // melder pingt elke ~15 s
+$contactVers  = ($seconden !== null && $seconden <= 90);   
 $alarmActief  = pgBool($ms['alarm_actief']);
 $gedempt      = pgBool($ms['alarm_gedempt']);
 $wijzigingBezig = $contactVers && !$lokaal && ($staat['melder'] !== $apparaatAan);
@@ -214,8 +216,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS melder_toestand (
 $st = $pdo->prepare("SELECT melder_id, modus, alarm, gedempt, reden, EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden
                      FROM melder_toestand WHERE $mijnMelders");
 $st->execute($gebruiker);
-$onlineMelders = [];   // namen van de devices die online zijn
-$alarmMelders  = [];   // namen van de devices die alarm geven (met de reden)
+$onlineMelders = [];   
+$alarmMelders  = [];   
 foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
     if ($m['modus'] === 'lokaal' || (float)$m['seconden'] > 90) { continue; }
     $naam = $mijnMelderLijst[$m['melder_id']] ?? 'Melder ' . $m['melder_id'];
@@ -466,7 +468,8 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
 
                     <h4>Volume</h4>
                     <form method="post" class="btn-pair">
-                        <input type="number" name="volume" min="0" max="30" value="25" style="width:80px;padding:8px;">
+                        <!-- Hier wordt nu netjes $actueelVolume getoond i.p.v. de hardcoded 25 -->
+                        <input type="number" name="volume" min="0" max="30" value="<?php echo $actueelVolume; ?>" style="width:80px;padding:8px;">
                         <button type="submit" name="actie" value="volume" class="ctrl-btn primary">Volume instellen</button>
                     </form>
 
@@ -474,7 +477,8 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
 
                     <h4>Liedje kiezen</h4>
                     <form method="post" class="btn-pair">
-                        <input type="number" name="liedje" min="1" max="14" placeholder="1-14" style="width:80px;padding:8px;">
+                        <!-- Hier wordt nu netjes $actueelLiedje getoond -->
+                        <input type="number" name="liedje" min="1" max="14" value="<?php echo $actueelLiedje; ?>" style="width:80px;padding:8px;">
                         <button type="submit" name="actie" value="speel_liedje" class="ctrl-btn primary">Afspelen</button>
                     </form>
 
