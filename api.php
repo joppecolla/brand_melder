@@ -8,6 +8,9 @@ $user = getenv('NEON_USER');
 $pass = getenv('NEON_PASS');
 $port = getenv('NEON_PORT') ?: '5432';
 
+// Het maximum aantal liedjes op je SD-kaart (pas dit aan als je er meer/minder op zet)
+$maxLiedjes = 14;
+
 try {
     $pdo = new PDO("pgsql:host=$host;port=$port;dbname=$db;sslmode=require", $user, $pass,
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => true]);
@@ -42,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         'ok' => true,
         'melder' => pgBool($r['melder_aan']),
         'muziek' => pgBool($r['muziek']),
+        'gekozen_liedje' => (int)($r['gekozen_liedje'] ?? 0),
         'co2_drempel' => (int)$r['co2_alarm_threshold'],
         'verzend_interval' => (int)($r['verzend_interval'] ?? 120)
     ]);
@@ -52,6 +56,52 @@ $in = json_decode(file_get_contents('php://input'), true);
 if (!is_array($in)) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'fout' => 'ongeldige json']);
+    exit;
+}
+
+// Website knop: Volgend liedje kiezen
+if (($in['actie'] ?? '') === 'volgende') {
+    try {
+        $sql = "UPDATE melder_status 
+                SET gekozen_liedje = CASE 
+                    WHEN gekozen_liedje + 1 > :max THEN 1 
+                    ELSE gekozen_liedje + 1 
+                END 
+                WHERE id = 1";
+        $st = $pdo->prepare($sql);
+        $st->execute(['max' => $maxLiedjes]);
+        
+        // Vraag het nieuwe liedje op om direct terug te sturen
+        $r = $pdo->query("SELECT gekozen_liedje FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+        echo json_encode(['ok' => true, 'gekozen_liedje' => (int)$r['gekozen_liedje']]);
+    } catch (Throwable $e) {
+        error_log('api.php volgende: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Website knop: Vorig liedje kiezen
+if (($in['actie'] ?? '') === 'vorige') {
+    try {
+        $sql = "UPDATE melder_status 
+                SET gekozen_liedje = CASE 
+                    WHEN gekozen_liedje - 1 < 1 THEN :max 
+                    ELSE gekozen_liedje - 1 
+                END 
+                WHERE id = 1";
+        $st = $pdo->prepare($sql);
+        $st->execute(['max' => $maxLiedjes]);
+        
+        // Vraag het nieuwe liedje op om direct terug te sturen
+        $r = $pdo->query("SELECT gekozen_liedje FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+        echo json_encode(['ok' => true, 'gekozen_liedje' => (int)$r['gekozen_liedje']]);
+    } catch (Throwable $e) {
+        error_log('api.php vorige: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+    }
     exit;
 }
 
@@ -118,7 +168,7 @@ try {
     $old = $pdo->query("SELECT * FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
     if (!$old) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
 
-    $status      = (($in['status'] ?? 'online') === 'lokaal') ? 'lokaal' : 'online';
+    $status     = (($in['status'] ?? 'online') === 'lokaal') ? 'lokaal' : 'online';
     $apparaatAan = array_key_exists('melder_aan', $in) ? (bool)$in['melder_aan'] : pgBool($old['apparaat_aan']);
     $alarm       = (bool)($in['alarm'] ?? false);
     $gedempt     = $alarm && (bool)($in['gedempt'] ?? false);
@@ -145,7 +195,7 @@ try {
         if ($reden === 'co2')                 $tekst = 'CO₂ te hoog' . ($heeftMeting ? ': ' . (int)$in['co2'] . ' ppm' : '');
         elseif ($reden === 'temperatuur')   $tekst = 'Temperatuur te hoog' . ($heeftMeting ? ': ' . round((float)$in['temperatuur'], 1) . ' °C' : '');
         elseif ($reden === 'handmatig')     $tekst = 'Handmatig alarm op de melder';
-        else                                  $tekst = 'Alarm op de melder';
+        else                                $tekst = 'Alarm op de melder';
         meld($pdo, $tekst, 'alarm');
     } elseif (!$alarm && $oudAlarm) {
         meld($pdo, 'Alarm voorbij', 'ok');
@@ -191,7 +241,6 @@ try {
         'melder' => pgBool($old['melder_aan']),
         'muziek' => pgBool($old['muziek']),
         'gekozen_liedje' => (int)($old['gekozen_liedje'] ?? 0),
-        'muziek_commando' => ($old['muziek_commando'] ?? ''),
         'volume' => (int)($old['volume'] ?? 25),
         'co2_drempel' => (int)($old['co2_alarm_threshold'] ?? 1000),
         'verzend_interval' => (int)($old['verzend_interval'] ?? 120)
@@ -207,3 +256,4 @@ try {
         'detail' => $e->getMessage()
     ]);
 }
+?>
