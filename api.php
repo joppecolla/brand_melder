@@ -23,10 +23,11 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
     $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
 }
 
-// GET = status en CO2-drempel opvragen (admin-pagina)
+// GET = status en CO2-drempel opvragen (admin-pagina of ESP)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
-        $r = $pdo->query("SELECT * FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);    } catch (Throwable $e) {
+        $r = $pdo->query("SELECT * FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
         error_log('api.php GET: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
@@ -42,7 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         'melder' => pgBool($r['melder_aan']),
         'muziek' => pgBool($r['muziek']),
         'co2_drempel' => (int)$r['co2_alarm_threshold'],
-        'verzend_interval' => (int)($r['verzend_interval'] ?? 120)    ]);
+        'verzend_interval' => (int)($r['verzend_interval'] ?? 120)
+    ]);
     exit;
 }
 
@@ -53,34 +55,7 @@ if (!is_array($in)) {
     exit;
 }
 
-// Admin-pagina: hoe vaak de ESP zijn metingen doorstuurt (in seconden)
-if (($in['actie'] ?? '') === 'verzend_interval_inst') {
-    session_start();
-    if (empty($_SESSION['is_admin'])) {
-        http_response_code(403);
-        echo json_encode(['ok' => false, 'fout' => 'Alleen admins mogen dit wijzigen.']);
-        exit;
-    }
-    $w = $in['verzend_interval'] ?? null;
-    if (!is_numeric($w) || (int)$w != $w || (int)$w < 10 || (int)$w > 3600) {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'fout' => 'Geef een waarde tussen 10 en 3600 seconden in.']);
-        exit;
-    }
-    try {
-        $pdo->exec("ALTER TABLE melder_status ADD COLUMN IF NOT EXISTS verzend_interval integer NOT NULL DEFAULT 120");
-        $st = $pdo->prepare("UPDATE melder_status SET verzend_interval = ? WHERE id = 1");
-        $st->execute([(int)$w]);
-        if ($st->rowCount() === 0) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
-        meld($pdo, 'Verzendinterval ingesteld op ' . (int)$w . ' seconden', 'info');
-        echo json_encode(['ok' => true, 'verzend_interval' => (int)$w]);
-    } catch (Throwable $e) {
-        error_log('api.php verzend_interval: ' . $e->getMessage());
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
-    }
-    exit;
-}
+// Admin-pagina: Verzendinterval instellen
 if (($in['actie'] ?? '') === 'verzend_interval_inst') {
     session_start();
     if (empty($_SESSION['is_admin'])) {
@@ -109,6 +84,33 @@ if (($in['actie'] ?? '') === 'verzend_interval_inst') {
     exit;
 }
 
+// Admin-pagina: CO2-alarmdrempel instellen
+if (($in['actie'] ?? '') === 'co2_drempel_inst') {
+    session_start();
+    if (empty($_SESSION['is_admin'])) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'fout' => 'Alleen admins mogen dit wijzigen.']);
+        exit;
+    }
+    $w = $in['co2_drempel'] ?? null;
+    if (!is_numeric($w) || (int)$w != $w || (int)$w < 1 || (int)$w > 5000) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'fout' => 'Geef een waarde tussen 1 en 5000 ppm in.']);
+        exit;
+    }
+    try {
+        $st = $pdo->prepare("UPDATE melder_status SET co2_alarm_threshold = ? WHERE id = 1");
+        $st->execute([(int)$w]);
+        if ($st->rowCount() === 0) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
+        meld($pdo, 'CO₂-alarmwaarde ingesteld op ' . (int)$w . ' ppm', 'info');
+        echo json_encode(['ok' => true, 'co2_drempel' => (int)$w]);
+    } catch (Throwable $e) {
+        error_log('api.php co2_drempel: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'fout' => 'server', 'detail' => $e->getMessage()]);
+    }
+    exit;
+}
 
 $stap = 'start';
 try {
@@ -120,14 +122,16 @@ try {
     $apparaatAan = array_key_exists('melder_aan', $in) ? (bool)$in['melder_aan'] : pgBool($old['apparaat_aan']);
     $alarm       = (bool)($in['alarm'] ?? false);
     $gedempt     = $alarm && (bool)($in['gedempt'] ?? false);
-    $reden       = $alarm ? substr(preg_replace('/[^a-z0-9]/', '', strtolower((string)($in['reden'] ?? ''))), 0, 20) : '';        // ID van de brandmelder (zelfde vorm als bij registreren, bv. "BM-01")
-    $melderId    = trim((string)($in['melder_id'] ?? ''));
+    $reden       = $alarm ? substr(preg_replace('/[^a-z0-9]/', '', strtolower((string)($in['reden'] ?? ''))), 0, 20) : '';        
+    
+    // Melder ID opvangen (ondersteunt zowel 'melder_id' als 'device_id')
+    $melderId    = trim((string)($in['melder_id'] ?? ($in['device_id'] ?? '')));
     if (!preg_match('/^[A-Za-z0-9_-]{1,30}$/', $melderId)) { $melderId = null; }
 
     // Meting opslaan (een ping bevat geen meetwaarden)
     $heeftMeting = isset($in['temperatuur'], $in['co2']) && is_numeric($in['temperatuur']) && is_numeric($in['co2']);
     if ($heeftMeting) {
-                $stap = 'meting opslaan';
+        $stap = 'meting opslaan';
         $pdo->exec("ALTER TABLE sensor_data ADD COLUMN IF NOT EXISTS melder_id text");
         $pdo->prepare("INSERT INTO sensor_data (melder_id, temperatuur, co2, batterij, alarm, gedempt) VALUES (?, ?, ?, ?, CAST(? AS boolean), CAST(? AS boolean))")
             ->execute([$melderId, (float)$in['temperatuur'], (int)$in['co2'], (int)($in['batterij'] ?? 100),
@@ -138,10 +142,10 @@ try {
     $stap = 'meldingen opslaan';
     $oudAlarm = pgBool($old['alarm_actief']);
     if ($alarm && !$oudAlarm) {
-        if ($reden === 'co2')              $tekst = 'CO₂ te hoog' . ($heeftMeting ? ': ' . (int)$in['co2'] . ' ppm' : '');
-        elseif ($reden === 'temperatuur')  $tekst = 'Temperatuur te hoog' . ($heeftMeting ? ': ' . round((float)$in['temperatuur'], 1) . ' °C' : '');
-        elseif ($reden === 'handmatig')    $tekst = 'Handmatig alarm op de melder';
-        else                               $tekst = 'Alarm op de melder';
+        if ($reden === 'co2')                 $tekst = 'CO₂ te hoog' . ($heeftMeting ? ': ' . (int)$in['co2'] . ' ppm' : '');
+        elseif ($reden === 'temperatuur')   $tekst = 'Temperatuur te hoog' . ($heeftMeting ? ': ' . round((float)$in['temperatuur'], 1) . ' °C' : '');
+        elseif ($reden === 'handmatig')     $tekst = 'Handmatig alarm op de melder';
+        else                                  $tekst = 'Alarm op de melder';
         meld($pdo, $tekst, 'alarm');
     } elseif (!$alarm && $oudAlarm) {
         meld($pdo, 'Alarm voorbij', 'ok');
@@ -160,19 +164,19 @@ try {
 
     $stap = 'melder_status bijwerken';
     $pdo->prepare("UPDATE melder_status SET laatste_contact = now(), apparaat_modus = ?, apparaat_aan = CAST(? AS boolean),
-                   alarm_actief = CAST(? AS boolean), alarm_gedempt = CAST(? AS boolean), alarm_reden = ? WHERE id = 1")
+                    alarm_actief = CAST(? AS boolean), alarm_gedempt = CAST(? AS boolean), alarm_reden = ? WHERE id = 1")
         ->execute([$status, $apparaatAan ? 'true' : 'false', $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
 
-    // Toestand per melder (online/lokaal, alarm) zodat het dashboard per device kan tonen wie online is en wie alarm geeft
+    // Toestand per melder bijwerken
     if ($melderId !== null) {
         $stap = 'melder_toestand bijwerken';
         $pdo->exec("CREATE TABLE IF NOT EXISTS melder_toestand (
-            melder_id       text PRIMARY KEY,
+            melder_id        text PRIMARY KEY,
             laatste_contact timestamptz NOT NULL DEFAULT now(),
-            modus           text NOT NULL DEFAULT 'online',
-            alarm           boolean NOT NULL DEFAULT false,
-            gedempt         boolean NOT NULL DEFAULT false,
-            reden           text NOT NULL DEFAULT ''
+            modus            text NOT NULL DEFAULT 'online',
+            alarm            boolean NOT NULL DEFAULT false,
+            gedempt          boolean NOT NULL DEFAULT false,
+            reden            text NOT NULL DEFAULT ''
         )");
         $pdo->prepare("INSERT INTO melder_toestand (melder_id, laatste_contact, modus, alarm, gedempt, reden)
                        VALUES (?, now(), ?, CAST(? AS boolean), CAST(? AS boolean), ?)
@@ -181,7 +185,7 @@ try {
             ->execute([$melderId, $status, $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
     }
 
-        // Antwoord: wat jij op het dashboard/admin hebt ingesteld
+    // Antwoord terugsturen naar de ESP32
     echo json_encode([
         'ok' => true,
         'melder' => pgBool($old['melder_aan']),
@@ -194,14 +198,8 @@ try {
     ]);
 
 } catch (Throwable $e) {
-
-    error_log(
-        'api.php server (' . $stap . '): ' .
-        $e->getMessage()
-    );
-
+    error_log('api.php server (' . $stap . '): ' . $e->getMessage());
     http_response_code(500);
-
     echo json_encode([
         'ok' => false,
         'fout' => 'server',
