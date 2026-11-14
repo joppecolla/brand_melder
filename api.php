@@ -8,7 +8,7 @@ $user = getenv('NEON_USER');
 $pass = getenv('NEON_PASS');
 $port = getenv('NEON_PORT') ?: '5432';
 
-// Het maximum aantal liedjes op je SD-kaart (pas dit aan als je er meer/minder op zet)
+// Het maximum aantal liedjes op je SD-kaart
 $maxLiedjes = 14;
 
 try {
@@ -46,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         'melder' => pgBool($r['melder_aan']),
         'muziek' => pgBool($r['muziek']),
         'gekozen_liedje' => (int)($r['gekozen_liedje'] ?? 0),
+        'volume' => (int)($r['volume'] ?? 25),
         'co2_drempel' => (int)$r['co2_alarm_threshold'],
         'verzend_interval' => (int)($r['verzend_interval'] ?? 120)
     ]);
@@ -71,7 +72,6 @@ if (($in['actie'] ?? '') === 'volgende') {
         $st = $pdo->prepare($sql);
         $st->execute(['max' => $maxLiedjes]);
         
-        // Vraag het nieuwe liedje op om direct terug te sturen
         $r = $pdo->query("SELECT gekozen_liedje FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
         echo json_encode(['ok' => true, 'gekozen_liedje' => (int)$r['gekozen_liedje']]);
     } catch (Throwable $e) {
@@ -94,7 +94,6 @@ if (($in['actie'] ?? '') === 'vorige') {
         $st = $pdo->prepare($sql);
         $st->execute(['max' => $maxLiedjes]);
         
-        // Vraag het nieuwe liedje op om direct terug te sturen
         $r = $pdo->query("SELECT gekozen_liedje FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
         echo json_encode(['ok' => true, 'gekozen_liedje' => (int)$r['gekozen_liedje']]);
     } catch (Throwable $e) {
@@ -174,11 +173,9 @@ try {
     $gedempt     = $alarm && (bool)($in['gedempt'] ?? false);
     $reden       = $alarm ? substr(preg_replace('/[^a-z0-9]/', '', strtolower((string)($in['reden'] ?? ''))), 0, 20) : '';        
     
-    // Melder ID opvangen (ondersteunt zowel 'melder_id' als 'device_id')
     $melderId    = trim((string)($in['melder_id'] ?? ($in['device_id'] ?? '')));
     if (!preg_match('/^[A-Za-z0-9_-]{1,30}$/', $melderId)) { $melderId = null; }
 
-    // Meting opslaan (een ping bevat geen meetwaarden)
     $heeftMeting = isset($in['temperatuur'], $in['co2']) && is_numeric($in['temperatuur']) && is_numeric($in['co2']);
     if ($heeftMeting) {
         $stap = 'meting opslaan';
@@ -188,7 +185,6 @@ try {
                        $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false']);
     }
 
-    // Meldingen aanmaken bij veranderingen
     $stap = 'meldingen opslaan';
     $oudAlarm = pgBool($old['alarm_actief']);
     if ($alarm && !$oudAlarm) {
@@ -217,7 +213,6 @@ try {
                     alarm_actief = CAST(? AS boolean), alarm_gedempt = CAST(? AS boolean), alarm_reden = ? WHERE id = 1")
         ->execute([$status, $apparaatAan ? 'true' : 'false', $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
 
-    // Toestand per melder bijwerken
     if ($melderId !== null) {
         $stap = 'melder_toestand bijwerken';
         $pdo->exec("CREATE TABLE IF NOT EXISTS melder_toestand (
@@ -235,7 +230,7 @@ try {
             ->execute([$melderId, $status, $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
     }
 
-    // Antwoord terugsturen naar de ESP32
+    // Antwoord terugsturen naar de ESP32 (inclusief volume en gekozen liedje)
     echo json_encode([
         'ok' => true,
         'melder' => pgBool($old['melder_aan']),
