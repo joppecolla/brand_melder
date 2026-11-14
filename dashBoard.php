@@ -184,8 +184,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ---------- 4. Toestand van de melder zoals de melder zelf die doorgeeft ----------
 try {
-    $ms = $pdo->query("SELECT melder_aan, muziek, apparaat_aan, apparaat_modus, alarm_actief, alarm_gedempt, alarm_reden,
+$ms = $pdo->query("SELECT melder_aan, muziek, apparaat_aan, apparaat_modus, alarm_actief, alarm_gedempt, alarm_reden, volume, gekozen_liedje,
                              EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden
+                      FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
                       FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
     $rijen = $pdo->query("SELECT tekst, niveau, (created_at AT TIME ZONE 'Europe/Brussels') AS lokaal
                           FROM meldingen ORDER BY created_at DESC LIMIT 6")->fetchAll(PDO::FETCH_ASSOC);
