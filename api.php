@@ -31,7 +31,7 @@ function stuurAlarmMail(string $onderwerp, string $bericht): void {
     $ontvanger = getenv('ALARM_EMAIL');
     if (!$apiKey || !$ontvanger) return;
 
-    // Strakke HTML-layout met alarm, noodstappen, noodnummer en nette reclame
+    // Strakke HTML-layout met alarm, noodstappen, noodnummer en reclame (zonder knop)
     $htmlInhoud = '
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
         <!-- Header -->
@@ -60,17 +60,16 @@ function stuurAlarmMail(string $onderwerp, string $bericht): void {
         <div style="background-color: #fff3cd; border-left: 5px solid #ffc107; padding: 15px 20px; margin: 0 20px 20px 20px;">
             <p style="margin: 0; font-weight: bold; color: #856404; font-size: 15px;">📞 Hulpdiensten bereiken?</p>
             <p style="margin: 5px 0 0 0; color: #856404; font-size: 14px;">
-                Zie je daadwerkelijk vuur, rook of vertrouw jef het niet? Bel onmiddellijk de brandweer op <strong>112</strong> (noodnummer).
+                Zie je daadwerkelijk vuur, rook of vertrouw je het niet? Bel onmiddellijk de brandweer op <strong>112</strong> (noodnummer).
             </p>
         </div>
 
-        <!-- Reclame / Promotie Blok -->
+        <!-- Reclame / Promotie Blok (Zonder knop) -->
         <div style="background-color: #f8f9fa; border-top: 1px solid #eee; padding: 20px; text-align: center;">
             <h3 style="color: #333; margin-top: 0; font-size: 18px;">💡 Slimme beveiliging met de Brand-Melder</h3>
-            <p style="color: #666; font-size: 14px; line-height: 1.4; max-width: 450px; margin: 0 auto 15px auto;">
+            <p style="color: #666; font-size: 14px; line-height: 1.4; max-width: 450px; margin: 0 auto; text-align: center;">
                 Altijd en overal op de hoogte van de luchtkwaliteit en veiligheid in huis? Onze slimme brandmelder combineert CO₂-monitoring, real-time database-updates en zelfs vrolijke melodieën via de ingebouwde spraak- en muziekmodule!
             </p>
-            <a href="#" style="display: inline-block; background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-size: 14px; font-weight: bold;">Ontdek meer leuke snufjes</a>
         </div>
 
         <!-- Footer -->
