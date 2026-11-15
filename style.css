@@ -1228,6 +1228,16 @@ img {
         padding: 9px 12px !important;
     }
 }
+/* Opslaan-knop bij Mijn melders */
+.melder-opslaan {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 110px;
+    max-width: 130px;
+    padding: 10px 22px !important;
+    margin-left: auto;
+    align-self: center;
+}
 
 
 /* Admin: grafiek met alle devices */
