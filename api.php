@@ -31,20 +31,59 @@ function stuurAlarmMail(string $onderwerp, string $bericht): void {
     $ontvanger = getenv('ALARM_EMAIL');
     if (!$apiKey || !$ontvanger) return;
 
-    // Maak hier je eigen HTML-layout
+    // Strakke HTML-layout met alarm, noodstappen, noodnummer en nette reclame
     $htmlInhoud = '
-    <div style="font-family: Arial, sans-serif; padding: 20px; border: 2px solid #ff4d4d; border-radius: 8px; background-color: #fff5f5;">
-        <h2 style="color: #cc0000; margin-top: 0;">🚨 Waarschuwing Brand-Melder</h2>
-        <p style="font-size: 16px; color: #333;">' . nl2br(htmlspecialchars($bericht)) . '</p>
-        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
-        <p style="font-size: 12px; color: #777;">Dit is een automatisch bericht van je ESP32 Brand-Melder systeem.</p>
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+        <!-- Header -->
+        <div style="background-color: #cc0000; color: white; padding: 20px; text-align: center;">
+            <h2 style="margin: 0; font-size: 22px;">🚨 Waarschuwing Brand-Melder</h2>
+        </div>
+
+        <!-- Inhoud Bericht -->
+        <div style="padding: 20px; background-color: #fff5f5;">
+            <p style="font-size: 16px; color: #333; line-height: 1.5;">' . nl2br(htmlspecialchars($bericht)) . '</p>
+        </div>
+
+        <!-- Wat te doen in geval van nood (Stappenplan) -->
+        <div style="background-color: #e8f4fd; border-left: 5px solid #007bff; padding: 15px 20px; margin: 20px;">
+            <p style="margin: 0 0 10px 0; font-weight: bold; color: #004085; font-size: 15px;">🛡️ Wat te doen in geval van nood?</p>
+            <ol style="margin: 0; padding-left: 20px; color: #004085; font-size: 14px; line-height: 1.6;">
+                <li><strong>Blijf kalm</strong> en raak niet in paniek.</li>
+                <li><strong>Controleer de ruimte</strong> op rook, vuur of extreme warmte.</li>
+                <li><strong>Ventileer direct:</strong> open ramen en deuren als het om een hoge CO₂-waarde gaat.</li>
+                <li><strong>Verlaat bij twijfel of rook direct het pand</strong> via de veiligste uitgang.</li>
+                <li>Breng jezelf en anderen in veiligheid.</li>
+            </ol>
+        </div>
+
+        <!-- Noodnummer Blok -->
+        <div style="background-color: #fff3cd; border-left: 5px solid #ffc107; padding: 15px 20px; margin: 0 20px 20px 20px;">
+            <p style="margin: 0; font-weight: bold; color: #856404; font-size: 15px;">📞 Hulpdiensten bereiken?</p>
+            <p style="margin: 5px 0 0 0; color: #856404; font-size: 14px;">
+                Zie je daadwerkelijk vuur, rook of vertrouw jef het niet? Bel onmiddellijk de brandweer op <strong>112</strong> (noodnummer).
+            </p>
+        </div>
+
+        <!-- Reclame / Promotie Blok -->
+        <div style="background-color: #f8f9fa; border-top: 1px solid #eee; padding: 20px; text-align: center;">
+            <h3 style="color: #333; margin-top: 0; font-size: 18px;">💡 Slimme beveiliging met de Brand-Melder</h3>
+            <p style="color: #666; font-size: 14px; line-height: 1.4; max-width: 450px; margin: 0 auto 15px auto;">
+                Altijd en overal op de hoogte van de luchtkwaliteit en veiligheid in huis? Onze slimme brandmelder combineert CO₂-monitoring, real-time database-updates en zelfs vrolijke melodieën via de ingebouwde spraak- en muziekmodule!
+            </p>
+            <a href="#" style="display: inline-block; background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-size: 14px; font-weight: bold;">Ontdek meer leuke snufjes</a>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #e9ecef; padding: 10px; text-align: center; font-size: 12px; color: #777;">
+            Dit is een automatisch gegenereerd bericht van jouw ESP32 Brand-Melder systeem.
+        </div>
     </div>';
 
     $data = [
         'from' => 'Brand-Melder <onboarding@resend.dev>',
         'to' => [$ontvanger],
         'subject' => $onderwerp,
-        'html' => $htmlInhoud // Vervang 'text' door 'html' voor opmaak
+        'html' => $htmlInhoud
     ];
 
     $ch = curl_init('https://api.resend.com/emails');
@@ -64,7 +103,6 @@ function stuurAlarmMail(string $onderwerp, string $bericht): void {
         error_log("Resend mail fout ($httpCode): " . $response);
     }
 }
-
 // GET = status en CO2-drempel opvragen (admin-pagina of ESP)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
