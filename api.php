@@ -31,11 +31,20 @@ function stuurAlarmMail(string $onderwerp, string $bericht): void {
     $ontvanger = getenv('ALARM_EMAIL');
     if (!$apiKey || !$ontvanger) return;
 
+    // Maak hier je eigen HTML-layout
+    $htmlInhoud = '
+    <div style="font-family: Arial, sans-serif; padding: 20px; border: 2px solid #ff4d4d; border-radius: 8px; background-color: #fff5f5;">
+        <h2 style="color: #cc0000; margin-top: 0;">🚨 Waarschuwing Brand-Melder</h2>
+        <p style="font-size: 16px; color: #333;">' . nl2br(htmlspecialchars($bericht)) . '</p>
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+        <p style="font-size: 12px; color: #777;">Dit is een automatisch bericht van je ESP32 Brand-Melder systeem.</p>
+    </div>';
+
     $data = [
         'from' => 'Brand-Melder <onboarding@resend.dev>',
         'to' => [$ontvanger],
         'subject' => $onderwerp,
-        'text' => $bericht
+        'html' => $htmlInhoud // Vervang 'text' door 'html' voor opmaak
     ];
 
     $ch = curl_init('https://api.resend.com/emails');
