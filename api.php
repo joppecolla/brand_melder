@@ -31,51 +31,31 @@ function stuurAlarmMail(string $onderwerp, string $bericht): void {
     $ontvanger = getenv('ALARM_EMAIL');
     if (!$apiKey || !$ontvanger) return;
 
-    // Strakke HTML-layout met alarm, noodstappen, noodnummer en reclame (zonder knop)
+    // Rustige, natuurlijke e-mail layout die niet "AI-achtig" aanvoelt
     $htmlInhoud = '
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-        <!-- Header -->
-        <div style="background-color: #cc0000; color: white; padding: 20px; text-align: center;">
-            <h2 style="margin: 0; font-size: 22px;">🚨 Waarschuwing Brand-Melder</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; color: #333; line-height: 1.6; padding: 20px;">
+        
+        <!-- Subtiele, rustige header in plaats van een harde rode balk -->
+        <p style="font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #d9534f; font-weight: bold; margin-bottom: 5px;">Waarschuwing brandmelder</p>
+        <h2 style="font-size: 22px; color: #111; margin-top: 0; margin-bottom: 20px;">Er is een melding gedetecteerd in huis.</h2>
+
+        <!-- De kernmelding -->
+        <div style="background-color: #fafafa; border-left: 3px solid #d9534f; padding: 15px; margin-bottom: 25px; border-radius: 0 4px 4px 0;">
+            <p style="margin: 0; font-size: 15px; color: #222;">' . nl2br(htmlspecialchars($bericht)) . '</p>
         </div>
 
-        <!-- Inhoud Bericht -->
-        <div style="padding: 20px; background-color: #fff5f5;">
-            <p style="font-size: 16px; color: #333; line-height: 1.5;">' . nl2br(htmlspecialchars($bericht)) . '</p>
+        <!-- Wat te doen (geschreven in normale, rustige taal) -->
+        <p style="font-size: 15px; margin-bottom: 10px; font-weight: bold; color: #222;">Wat je nu het beste kunt doen:</p>
+        <p style="font-size: 14px; color: #444; margin-top: 0; margin-bottom: 20px;">
+            Neem even een moment om rustig te controleren of er zichtbare rook, warmte of een andere oorzaak is. Gaat het om een verhoogde CO₂-waarde? Zet dan direct ramen en deuren open om goed te ventileren. Mocht je het niet vertrouwen of zie je vuur, blijf dan niet afwachten en bel direct de hulpdiensten via <strong>112</strong>.
+        </p>
+
+        <!-- Subtiele productvermelding / footer -->
+        <div style="border-top: 1px solid #eaeaea; padding-top: 20px; margin-top: 30px; font-size: 13px; color: #666;">
+            <p style="margin: 0 0 5px 0;">Dit bericht is automatisch verstuurd door je eigen slimme brandmelder-systeem.</p>
+            <p style="margin: 0; color: #888;">Gemaakt om je huis veilig te houden met slimme sensoren en real-time monitoring.</p>
         </div>
 
-        <!-- Wat te doen in geval van nood (Stappenplan) -->
-        <div style="background-color: #e8f4fd; border-left: 5px solid #007bff; padding: 15px 20px; margin: 20px;">
-            <p style="margin: 0 0 10px 0; font-weight: bold; color: #004085; font-size: 15px;">🛡️ Wat te doen in geval van nood?</p>
-            <ol style="margin: 0; padding-left: 20px; color: #004085; font-size: 14px; line-height: 1.6;">
-                <li><strong>Blijf kalm</strong> en raak niet in paniek.</li>
-                <li><strong>Controleer de ruimte</strong> op rook, vuur of extreme warmte.</li>
-                <li><strong>Ventileer direct:</strong> open ramen en deuren als het om een hoge CO₂-waarde gaat.</li>
-                <li><strong>Verlaat bij twijfel of rook direct het pand</strong> via de veiligste uitgang.</li>
-                <li>Breng jezelf en anderen in veiligheid.</li>
-            </ol>
-        </div>
-
-        <!-- Noodnummer Blok -->
-        <div style="background-color: #fff3cd; border-left: 5px solid #ffc107; padding: 15px 20px; margin: 0 20px 20px 20px;">
-            <p style="margin: 0; font-weight: bold; color: #856404; font-size: 15px;">📞 Hulpdiensten bereiken?</p>
-            <p style="margin: 5px 0 0 0; color: #856404; font-size: 14px;">
-                Zie je daadwerkelijk vuur, rook of vertrouw je het niet? Bel onmiddellijk de brandweer op <strong>112</strong> (noodnummer).
-            </p>
-        </div>
-
-        <!-- Reclame / Promotie Blok (Zonder knop) -->
-        <div style="background-color: #f8f9fa; border-top: 1px solid #eee; padding: 20px; text-align: center;">
-            <h3 style="color: #333; margin-top: 0; font-size: 18px;">💡 Slimme beveiliging met de Brand-Melder</h3>
-            <p style="color: #666; font-size: 14px; line-height: 1.4; max-width: 450px; margin: 0 auto; text-align: center;">
-                Altijd en overal op de hoogte van de luchtkwaliteit en veiligheid in huis? Onze slimme brandmelder combineert CO₂-monitoring, real-time database-updates en zelfs vrolijke melodieën via de ingebouwde spraak- en muziekmodule!
-            </p>
-        </div>
-
-        <!-- Footer -->
-        <div style="background-color: #e9ecef; padding: 10px; text-align: center; font-size: 12px; color: #777;">
-            Dit is een automatisch gegenereerd bericht van jouw ESP32 Brand-Melder systeem.
-        </div>
     </div>';
 
     $data = [
