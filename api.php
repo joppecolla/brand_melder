@@ -26,6 +26,36 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
     $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
 }
 
+function stuurAlarmMail(string $onderwerp, string $bericht): void {
+    $apiKey = getenv('RESEND_API_KEY');
+    $ontvanger = getenv('ALARM_EMAIL');
+    if (!$apiKey || !$ontvanger) return;
+
+    $data = [
+        'from' => 'Brand-Melder <onboarding@resend.dev>',
+        'to' => [$ontvanger],
+        'subject' => $onderwerp,
+        'text' => $bericht
+    ];
+
+    $ch = curl_init('https://api.resend.com/emails');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . $apiKey,
+        'Content-Type: application/json'
+    ]);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode >= 400) {
+        error_log("Resend mail fout ($httpCode): " . $response);
+    }
+}
+
 // GET = status en CO2-drempel opvragen (admin-pagina of ESP)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
@@ -167,7 +197,7 @@ try {
     $old = $pdo->query("SELECT * FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
     if (!$old) { throw new RuntimeException('melder_status heeft geen rij met id = 1'); }
 
-    $status     = (($in['status'] ?? 'online') === 'lokaal') ? 'lokaal' : 'online';
+    $status      = (($in['status'] ?? 'online') === 'lokaal') ? 'lokaal' : 'online';
     $apparaatAan = array_key_exists('melder_aan', $in) ? (bool)$in['melder_aan'] : pgBool($old['apparaat_aan']);
     $alarm       = (bool)($in['alarm'] ?? false);
     $gedempt     = $alarm && (bool)($in['gedempt'] ?? false);
@@ -191,8 +221,15 @@ try {
         if ($reden === 'co2')                 $tekst = 'CO₂ te hoog' . ($heeftMeting ? ': ' . (int)$in['co2'] . ' ppm' : '');
         elseif ($reden === 'temperatuur')   $tekst = 'Temperatuur te hoog' . ($heeftMeting ? ': ' . round((float)$in['temperatuur'], 1) . ' °C' : '');
         elseif ($reden === 'handmatig')     $tekst = 'Handmatig alarm op de melder';
-        else                                $tekst = 'Alarm op de melder';
+        else                                  $tekst = 'Alarm op de melder';
+        
         meld($pdo, $tekst, 'alarm');
+
+        // E-mail versturen via Render/Resend
+        $melderLabel = $melderId ? "Melder $melderId" : "Onbekende melder";
+        $mailTekst = "Let op!\n\nEr is een alarm afgegaan op $melderLabel.\nReden: $tekst\nTijdstip: " . date('d-m-Y H:i:s');
+        stuurAlarmMail("🚨 ALARM: $tekst ($melderLabel)", $mailTekst);
+
     } elseif (!$alarm && $oudAlarm) {
         meld($pdo, 'Alarm voorbij', 'ok');
     }
