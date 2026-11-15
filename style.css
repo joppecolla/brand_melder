@@ -1142,10 +1142,93 @@ img {
 .auth-switch a { color: var(--red); font-weight: 600; }
 
 /* Mijn melders: naam per melder aanpassen */
-.melder-kleur { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 14px; }
-.melder-rij input[type="text"] { margin-top: 4px; padding: 9px 12px; border: 1px solid #dfe4ec; border-radius: 10px; font: inherit; color: var(--navy); width: 100%; max-width: 320px; }
-.melder-rij input[type="text"]:focus { outline: none; border-color: var(--navy-light); }
-.melder-rij .ctrl-btn { flex: 0 0 auto; min-height: 42px; }
+
+/* MIJN MELDERS */
+.melder-rij {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 20px;
+    padding: 22px 8px;
+    border-bottom: 1px solid #eaeaea;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.melder-rij:last-child {
+    border-bottom: none;
+}
+
+.melder-info {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+.melder-kleur {
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    border-radius: 50%;
+    display: block;
+}
+
+.melder-details {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+}
+
+.melder-details strong {
+    font-size: 0.95rem;
+    color: #192e50;
+}
+
+.melder-details input[type="text"] {
+    width: 240px;
+    max-width: 100%;
+    padding: 9px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 7px;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+}
+
+.melder-details input[type="text"]:focus {
+    outline: none;
+    border-color: #27466f;
+    box-shadow: 0 0 0 3px rgba(39, 70, 111, 0.1);
+}
+
+.melder-opslaan {
+    flex-shrink: 0;
+    padding: 10px 22px !important;
+}
+
+/* Mobiele weergave */
+@media (max-width: 600px) {
+    .melder-rij {
+        gap: 10px;
+        padding: 18px 0;
+    }
+
+    .melder-info {
+        gap: 10px;
+    }
+
+    .melder-details input[type="text"] {
+        width: 170px;
+    }
+
+    .melder-opslaan {
+        padding: 9px 12px !important;
+    }
+}
+
 
 /* Admin: grafiek met alle devices */
 .chart-toolbar, .table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
