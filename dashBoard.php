@@ -106,10 +106,10 @@ foreach ($mijnMelderLijst as $melder => $naam) {
     $kleur = $kleurVan[$melder] = $kleuren[$nr++ % count($kleuren)];
     if (!isset($perMelder[$melder])) { continue; }
     $punten = $perMelder[$melder];
-        $tijd   = $laatsteTijd[$melder] ?? null;
+    $tijd   = $laatsteTijd[$melder] ?? null;
     $tempLijnen[] = ['naam' => $naam, 'kleur' => $kleur, 'laatsteTijd' => $tijd, 'waarden' => array_map(fn($b) => $punten[$b][0] ?? null, array_keys($blokken))];
     $co2Lijnen[]  = ['naam' => $naam, 'kleur' => $kleur, 'laatsteTijd' => $tijd, 'waarden' => array_map(fn($b) => $punten[$b][1] ?? null, array_keys($blokken))];
-    }
+}
 // Met maar één melder houden de grafieken hun eigen kleur (rood / blauw)
 if (count($tempLijnen) === 1) { $tempLijnen[0]['kleur'] = '#e63946'; $co2Lijnen[0]['kleur'] = '#27466f'; }
 // Test de alarm-weergave met dashBoard.php?demo=rook
@@ -468,7 +468,6 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
 
                     <h4>Volume</h4>
                     <form method="post" class="btn-pair">
-                        <!-- Hier wordt nu netjes $actueelVolume getoond i.p.v. de hardcoded 25 -->
                         <input type="number" name="volume" min="0" max="30" value="<?php echo $actueelVolume; ?>" style="width:80px;padding:8px;">
                         <button type="submit" name="actie" value="volume" class="ctrl-btn primary">Volume instellen</button>
                     </form>
@@ -477,7 +476,6 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
 
                     <h4>Liedje kiezen</h4>
                     <form method="post" class="btn-pair">
-                        <!-- Hier wordt nu netjes $actueelLiedje getoond -->
                         <input type="number" name="liedje" min="1" max="14" value="<?php echo $actueelLiedje; ?>" style="width:80px;padding:8px;">
                         <button type="submit" name="actie" value="speel_liedje" class="ctrl-btn primary">Afspelen</button>
                     </form>
@@ -522,9 +520,16 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
             <section class="card list-card" id="melders-card">
                 <?php if (!$mijnMelderLijst) { ?><p class="control-warning">Er zijn nog geen melders aan je account gekoppeld.</p><?php } ?>
                 <?php foreach ($mijnMelderLijst as $melder => $naam) { ?>
-                    <form method="post" class="row melder-rij">
-                        <span class="melder-kleur" style="background: <?php echo $kleurVan[$melder]; ?>"></span>
-                        <!-- Volledige form logica voor meldernamen -->
+                    <form method="post" class="row melder-rij" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eaeaea;">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                            <span class="melder-kleur" style="width: 14px; height: 14px; border-radius: 50%; display: inline-block; background: <?php echo $kleurVan[$melder]; ?>"></span>
+                            <div>
+                                <strong style="display: block; font-size: 0.95rem;">Melder ID: <?php echo htmlspecialchars($melder); ?></strong>
+                                <input type="hidden" name="melder_id" value="<?php echo htmlspecialchars($melder); ?>">
+                                <input type="text" name="naam" value="<?php echo htmlspecialchars($naam); ?>" maxlength="40" placeholder="Naam voor melder..." style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 4px; width: 220px;">
+                            </div>
+                        </div>
+                        <button type="submit" name="actie" value="melder_naam" class="ctrl-btn primary" style="padding: 6px 14px; font-size: 0.9rem;">Opslaan</button>
                     </form>
                 <?php } ?>
             </section>
