@@ -515,21 +515,21 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
                 </section>
             </div>
 
-            <!-- MIJN MELDERS -->
+<!-- MIJN MELDERS -->
             <div class="section-row" id="melders"><h3>Mijn melders</h3><span>Geef elke melder een naam, bv. Woonkamer</span></div>
             <section class="card list-card" id="melders-card">
                 <?php if (!$mijnMelderLijst) { ?><p class="control-warning">Er zijn nog geen melders aan je account gekoppeld.</p><?php } ?>
                 <?php foreach ($mijnMelderLijst as $melder => $naam) { ?>
-                    <form method="post" class="row melder-rij" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #eaeaea;">
-                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <span class="melder-kleur" style="width: 14px; height: 14px; border-radius: 50%; display: inline-block; background: <?php echo $kleurVan[$melder]; ?>"></span>
+                    <form method="post" class="row melder-rij" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid #eaeaea;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <span class="melder-kleur" style="width: 14px; height: 14px; border-radius: 50%; display: inline-block; background: <?php echo $kleurVan[$melder]; ?>; flex-shrink: 0;"></span>
                             <div>
-                                <strong style="display: block; font-size: 0.95rem;">Melder ID: <?php echo htmlspecialchars($melder); ?></strong>
+                                <strong style="display: block; font-size: 0.95rem; margin-bottom: 2px;">Melder ID: <?php echo htmlspecialchars($melder); ?></strong>
                                 <input type="hidden" name="melder_id" value="<?php echo htmlspecialchars($melder); ?>">
-                                <input type="text" name="naam" value="<?php echo htmlspecialchars($naam); ?>" maxlength="40" placeholder="Naam voor melder..." style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 4px; width: 220px;">
+                                <input type="text" name="naam" value="<?php echo htmlspecialchars($naam); ?>" maxlength="40" placeholder="Naam voor melder..." style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; width: 220px;">
                             </div>
                         </div>
-                        <button type="submit" name="actie" value="melder_naam" class="ctrl-btn primary" style="padding: 6px 14px; font-size: 0.9rem;">Opslaan</button>
+                        <button type="submit" name="actie" value="melder_naam" class="ctrl-btn primary" style="padding: 6px 16px; font-size: 0.9rem;">Opslaan</button>
                     </form>
                 <?php } ?>
             </section>
