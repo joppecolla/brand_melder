@@ -145,8 +145,12 @@ if (count($tempLijnen) === 1) { $tempLijnen[0]['kleur'] = '#e63946'; $co2Lijnen[
 $demoAlarm = (($_GET['demo'] ?? '') === 'rook');
 
 function pgBool($v): bool { return $v === true || $v === 't' || $v === 'true' || $v === 1 || $v === '1'; }
-function meld(PDO $pdo, string $tekst, string $niveau): void {
-    $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
+function meld(PDO $pdo, string $tekst, string $niveau, ?string $melderId = null): void {
+    $pdo->exec("ALTER TABLE meldingen ADD COLUMN IF NOT EXISTS melder_id text");
+    $pdo->prepare("INSERT INTO meldingen (tekst, niveau, melder_id) VALUES (?, ?, ?)")->execute([$tekst, $niveau, $melderId]);
+    // Per melder blijven alleen de 20 nieuwste meldingen bewaard
+    $pdo->prepare("DELETE FROM meldingen WHERE ctid IN (SELECT ctid FROM meldingen WHERE melder_id IS NOT DISTINCT FROM ?
+                                                        ORDER BY created_at DESC OFFSET 20)")->execute([$melderId]);
 }
 
 // ---------- 3. Bediening: wensen worden in de database bewaard ----------
@@ -154,13 +158,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     switch ($_POST['actie'] ?? '') {
         case 'muziek_aan':
             if (bedien($pdo, $bedienMelder, 'muziek = true', 'AND melder_aan = true AND muziek = false')) {
-                meld($pdo, 'Muziekalarm gestart (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
-            }
+                meld($pdo, 'Muziekalarm gestart', 'info', $bedienMelder);            }
             break;
         case 'muziek_uit':
             if (bedien($pdo, $bedienMelder, 'muziek = false', 'AND muziek = true')) {
-                meld($pdo, 'Muziekalarm gestopt (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
-            }
+                meld($pdo, 'Muziekalarm gestopt', 'info', $bedienMelder);            }
             break;
         case 'volume':
             $volume = max(0, min(30, (int)($_POST['volume'] ?? 25)));
@@ -182,13 +184,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         case 'melder_uit':
             if (bedien($pdo, $bedienMelder, 'melder_aan = false, muziek = false', 'AND melder_aan = true')) {
-                meld($pdo, 'Uitzetten aangevraagd via dashboard (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
-            }
+                meld($pdo, 'Uitzetten aangevraagd via dashboard', 'info', $bedienMelder);            }
             break;
         case 'melder_aan':
             if (bedien($pdo, $bedienMelder, 'melder_aan = true', 'AND melder_aan = false')) {
-                meld($pdo, 'Aanzetten aangevraagd via dashboard (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
-            }
+                meld($pdo, 'Aanzetten aangevraagd via dashboard', 'info', $bedienMelder);            }
             break;
         case 'melder_naam':
             $naam   = mb_substr(trim($_POST['naam'] ?? ''), 0, 40);
@@ -214,8 +214,11 @@ try {
     $ms = $pdo->query("SELECT melder_aan, muziek, apparaat_aan, apparaat_modus, alarm_actief, alarm_gedempt, alarm_reden, volume, gekozen_liedje,
                              EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden
                       FROM melder_status WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
-    $rijen = $pdo->query("SELECT tekst, niveau, (created_at AT TIME ZONE 'Europe/Brussels') AS lokaal
-                          FROM meldingen ORDER BY created_at DESC LIMIT 6")->fetchAll(PDO::FETCH_ASSOC);
+    $pdo->exec("ALTER TABLE meldingen ADD COLUMN IF NOT EXISTS melder_id text");
+    $st = $pdo->prepare("SELECT melder_id, tekst, niveau, (created_at AT TIME ZONE 'Europe/Brussels') AS lokaal
+                         FROM meldingen WHERE $mijnMelders ORDER BY created_at DESC LIMIT 8");
+    $st->execute($gebruiker);
+    $rijen = $st->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     die("Database niet klaar: voer eerst setup.sql uit in Neon. (" . $e->getMessage() . ")");
 }
@@ -298,8 +301,8 @@ foreach ($rijen as $r) {
     $t = strtotime($r['lokaal']);
     $dag = date('Y-m-d', $t) === date('Y-m-d') ? 'Vandaag'
          : (date('Y-m-d', $t) === date('Y-m-d', strtotime('-1 day')) ? 'Gisteren' : date('d-m', $t));
-    $meldingen[] = [$r['tekst'], date('H:i', $t) . ' - ' . $dag, $r['niveau']];
-}
+    $naam = $mijnMelderLijst[$r['melder_id']] ?? 'Melder ' . $r['melder_id'];
+    $meldingen[] = [$naam . ': ' . $r['tekst'], date('H:i', $t) . ' - ' . $dag, $r['niveau']];}
 if ($demoAlarm) { array_unshift($meldingen, ['Demo-alarm', date('H:i') . ' - Vandaag', 'alarm']); }
 
 function ico(string $n, string $extra = ''): string {

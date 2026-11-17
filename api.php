@@ -22,8 +22,12 @@ try {
 }
 
 function pgBool($v): bool { return $v === true || $v === 't' || $v === 'true' || $v === 1 || $v === '1'; }
-function meld(PDO $pdo, string $tekst, string $niveau): void {
-    $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
+function meld(PDO $pdo, string $tekst, string $niveau, ?string $melderId = null): void {
+    $pdo->exec("ALTER TABLE meldingen ADD COLUMN IF NOT EXISTS melder_id text");
+    $pdo->prepare("INSERT INTO meldingen (tekst, niveau, melder_id) VALUES (?, ?, ?)")->execute([$tekst, $niveau, $melderId]);
+    // Per melder blijven alleen de 20 nieuwste meldingen bewaard
+    $pdo->prepare("DELETE FROM meldingen WHERE ctid IN (SELECT ctid FROM meldingen WHERE melder_id IS NOT DISTINCT FROM ?
+                                                        ORDER BY created_at DESC OFFSET 20)")->execute([$melderId]);
 }
 
 // Bediening per melder (muziek, liedje, volume, aan/uit): elke melder krijgt zijn eigen rij
@@ -278,14 +282,25 @@ try {
     }
 
     $stap = 'meldingen opslaan';
-    $oudAlarm = pgBool($old['alarm_actief']);
+    // Vorige toestand van DEZE melder (zodat meldingen van verschillende melders niet door elkaar lopen)
+    $vorig = ['alarm' => $old['alarm_actief'], 'gedempt' => $old['alarm_gedempt'], 'modus' => $old['apparaat_modus'], 'aan' => $old['apparaat_aan']];
+    if ($melderId !== null) {
+        try {
+            $st = $pdo->prepare("SELECT alarm, gedempt, modus, aan FROM melder_toestand WHERE melder_id = ?");
+            $st->execute([$melderId]);
+            $vorig = $st->fetch(PDO::FETCH_ASSOC) ?: ['alarm' => false, 'gedempt' => false, 'modus' => 'online', 'aan' => $apparaatAan];
+        } catch (Throwable $e) {
+            error_log('api.php vorige toestand: ' . $e->getMessage());
+        }
+    }
+    $oudAlarm = pgBool($vorig['alarm']);
     if ($alarm && !$oudAlarm) {
         if ($reden === 'co2')                 $tekst = 'CO₂ te hoog' . ($heeftMeting ? ': ' . (int)$in['co2'] . ' ppm' : '');
         elseif ($reden === 'temperatuur')   $tekst = 'Temperatuur te hoog' . ($heeftMeting ? ': ' . round((float)$in['temperatuur'], 1) . ' °C' : '');
         elseif ($reden === 'handmatig')     $tekst = 'Handmatig alarm op de melder';
         else                                  $tekst = 'Alarm op de melder';
         
-        meld($pdo, $tekst, 'alarm');
+        meld($pdo, $tekst, 'alarm', $melderId);
 
         // E-mail versturen via Render/Resend
         $melderLabel = $melderId ? "Melder $melderId" : "Onbekende melder";
@@ -293,19 +308,20 @@ try {
         stuurAlarmMail("🚨 ALARM: $tekst ($melderLabel)", $mailTekst);
 
     } elseif (!$alarm && $oudAlarm) {
-        meld($pdo, 'Alarm voorbij', 'ok');
+        meld($pdo, 'Alarm voorbij', 'ok', $melderId);
     }
-    if ($alarm && $gedempt && !pgBool($old['alarm_gedempt'])) {
-        meld($pdo, 'Alarm gedempt op de melder', 'info');
+    if ($alarm && $gedempt && !pgBool($vorig['gedempt'])) {
+        meld($pdo, 'Alarm gedempt op de melder', 'info', $melderId);
     }
-    if ($status === 'lokaal' && $old['apparaat_modus'] !== 'lokaal') {
-        meld($pdo, 'Melder in lokale modus gezet (op het apparaat)', 'info');
-    } elseif ($status === 'online' && $old['apparaat_modus'] === 'lokaal') {
-        meld($pdo, 'Melder weer online', 'ok');
+    if ($status === 'lokaal' && $vorig['modus'] !== 'lokaal') {
+        meld($pdo, 'Melder in lokale modus gezet (op het apparaat)', 'info', $melderId);
+    } elseif ($status === 'online' && $vorig['modus'] === 'lokaal') {
+        meld($pdo, 'Melder weer online', 'ok', $melderId);
     }
-    if ($apparaatAan !== pgBool($old['apparaat_aan'])) {
-        meld($pdo, $apparaatAan ? 'Melder ingeschakeld' : 'Melder uitgeschakeld', 'info');
+    if ($apparaatAan !== pgBool($vorig['aan'])) {
+        meld($pdo, $apparaatAan ? 'Melder ingeschakeld' : 'Melder uitgeschakeld', 'info', $melderId);
     }
+
 
     $stap = 'melder_status bijwerken';
     $pdo->prepare("UPDATE melder_status SET laatste_contact = now(), apparaat_modus = ?, apparaat_aan = CAST(? AS boolean),
