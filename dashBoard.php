@@ -571,8 +571,125 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
 
 </section>
 
-
         </div>
+
+        <!-- Bevestigingsvenster -->
+        <dialog id="bevestiging" class="confirm-box">
+            <span class="tile danger-tile"><?php echo ico('alert'); ?></span>
+            <h3>Rookmelder uitzetten?</h3>
+            <p>Weet je zeker dat je de rookmelder wilt uitzetten? Er wordt dan <strong>geen rook of brand meer gedetecteerd</strong> en er komt geen alarm.</p>
+            <form method="post" class="btn-pair">
+                <button type="button" class="ctrl-btn" id="annuleer">Annuleren</button>
+                <button name="actie" value="melder_uit" class="ctrl-btn danger solid">Ja, uitzetten</button>
+            </form>
+        </dialog>
     </main>
+
+    <script>
+    // Bevestigingsvenster openen en sluiten
+    document.addEventListener('click', (e) => {
+        const dlg = document.getElementById('bevestiging');
+        if (!dlg) return;
+        if (e.target.closest('#openBevestiging')) dlg.showModal();
+        if (e.target.closest('#annuleer')) dlg.close();
+    });
+
+    // Grafiek: standaardwaarde terugzetten
+    function toonStandaard(svg) {
+        const kop = svg.closest('.chart-card').querySelector('.chart-head');
+        const groot = kop.querySelector('strong'), klein = kop.querySelector('small');
+        if (groot.dataset.standaard) {
+            groot.innerHTML = groot.dataset.standaard;
+            klein.textContent = klein.dataset.standaard;
+            delete groot.dataset.standaard;
+        }
+        svg.querySelector('.hover-punt').style.display = 'none';
+    }
+
+    // Muis en vinger: waarde van het dichtstbijzijnde punt tonen
+    function toonPunt(e) {
+        const svg = e.target.closest && e.target.closest('svg.chart[data-punten]');
+        if (!svg) return;
+        const punten = JSON.parse(svg.dataset.punten);
+        if (!punten.length) return;
+
+        const muis = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+        let beste = punten[0];
+        punten.forEach(p => {
+            if (Math.hypot(p.x - muis.x, p.y - muis.y) < Math.hypot(beste.x - muis.x, beste.y - muis.y)) beste = p;
+        });
+
+        const kop = svg.closest('.chart-card').querySelector('.chart-head');
+        const groot = kop.querySelector('strong'), klein = kop.querySelector('small');
+        if (!groot.dataset.standaard) {
+            groot.dataset.standaard = groot.innerHTML;
+            klein.dataset.standaard = klein.textContent;
+        }
+        groot.innerHTML = beste.w + ' <em>' + svg.dataset.eenheid + '</em>';
+        klein.textContent = klein.dataset.standaard + ' · ' + beste.naam + ' om ' + beste.t;
+
+        const bol = svg.querySelector('.hover-punt');
+        bol.setAttribute('cx', beste.x);
+        bol.setAttribute('cy', beste.y);
+        bol.setAttribute('stroke', beste.kleur);
+        bol.style.display = '';
+    }
+    document.addEventListener('pointermove', toonPunt);
+    document.addEventListener('pointerdown', toonPunt);
+
+    // Muis verlaat de grafiek: terugzetten
+    document.addEventListener('pointerout', (e) => {
+        if (e.pointerType !== 'mouse') return;
+        const svg = e.target.closest && e.target.closest('svg.chart[data-punten]');
+        if (svg && !svg.contains(e.relatedTarget)) toonStandaard(svg);
+    });
+
+    // Gsm: ergens anders tikken zet de grafiek terug
+    document.addEventListener('pointerdown', (e) => {
+        document.querySelectorAll('svg.chart[data-punten]').forEach(svg => {
+            if (!svg.contains(e.target)) toonStandaard(svg);
+        });
+    });
+
+    // Elke 5 s vernieuwen zonder de pagina te herladen
+    setInterval(async () => {
+        try {
+            const response = await fetch(window.location.pathname + '?t=' + Date.now(), { cache: 'no-store' });
+            const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+
+            const nieuwAlarm = doc.getElementById('alarm-wrap');
+            const huidigAlarm = document.getElementById('alarm-wrap');
+            if (nieuwAlarm && huidigAlarm && nieuwAlarm.innerHTML !== huidigAlarm.innerHTML) {
+                huidigAlarm.innerHTML = nieuwAlarm.innerHTML;
+            }
+
+            const nieuweHero = doc.getElementById('status-hero');
+            const huidigeHero = document.getElementById('status-hero');
+            if (nieuweHero && huidigeHero && nieuweHero.innerHTML !== huidigeHero.innerHTML) {
+                huidigeHero.className = nieuweHero.className;
+                huidigeHero.innerHTML = nieuweHero.innerHTML;
+            }
+
+            // Grafieken niet vervangen zolang er een punt aangeduid is
+            ['temp-chart', 'co2-chart', 'live-pill', 'meldingen-card'].forEach(id => {
+                const nieuwEl = doc.getElementById(id);
+                const huidigEl = document.getElementById(id);
+                if (nieuwEl && huidigEl && nieuwEl.innerHTML !== huidigEl.innerHTML && !huidigEl.querySelector('[data-standaard]')) {
+                    huidigEl.innerHTML = nieuwEl.innerHTML;
+                }
+            });
+        } catch (error) {
+            console.error('Fout bij achtergrond-update:', error);
+        }
+    }, 5000);
+    </script>
+
+    <footer class="footer">
+        <div>
+            <strong>🚨 Brand-Melder</strong>
+            <p>Een slim IoT-project rond brandveiligheid.</p>
+        </div>
+        <p class="copyright">© <?php echo date("Y"); ?> Brand-Melder</p>
+    </footer>
 </body>
 </html>

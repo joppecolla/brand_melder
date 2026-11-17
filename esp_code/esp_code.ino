@@ -15,11 +15,14 @@
 #define TEMP_HYSTERESE       1.0    // alarm stopt pas onder (drempel - 1) °C
 #define melder_id            1
 
-const int DEFAULT_CO2_ALARM_THRESHOLD = 1000;   // ppm
-const unsigned long sensorIntervalMs  = 30000;  // elke 30 s meten
-const int           samplesPerUpload  = 4;      // 4 metingen = 2 minuten
-const unsigned long snoozeMs          = 10000;  // na knop 1: 10 s stil
-const unsigned long alarmPostMinGapMs = 10000;  // min. tijd tussen alarm-posts
+const int           DEFAULT_CO2_ALARM_THRESHOLD = 1000;               // ppm
+const unsigned long DEFAULT_VERZEND_INTERVAL_MS = 120000;             // standaard elke 2 minuten
+const int           MAX_SAMPLES                 = 120;                // 3600 s / 30 s
+unsigned long       verzendIntervalMs = DEFAULT_VERZEND_INTERVAL_MS;
+unsigned long       sensorIntervalMs  = 30000;                        // wordt berekend uit het verzendinterval
+int                 samplesPerUpload  = 4;                            // wordt berekend uit het verzendinterval
+const unsigned long snoozeMs          = 10000;                        // na knop 1: 10 s stil
+const unsigned long alarmPostMinGapMs = 10000;                        // min. tijd tussen alarm-posts
 const unsigned long debounceDelay     = 50;
 
 // I2C-bus voor DHT20
@@ -88,12 +91,25 @@ int huidigVolume = 25;
 int vorigVolume = -1;
 
 // Meetbuffer voor de 2-minuten upload
-float sampleTemp[samplesPerUpload];
-int   sampleCo2[samplesPerUpload];
+float sampleTemp[MAX_SAMPLES];
+int   sampleCo2[MAX_SAMPLES];
 int   sampleCount = 0;   
 int   tickCount = 0;     
 
 unsigned long previousSensorMillis = 0;
+
+// Rekent uit hoe vaak er gemeten wordt (max. 30 s tussen metingen)
+void stelVerzendIntervalIn(unsigned long ms) {
+  verzendIntervalMs = ms;
+  samplesPerUpload  = (ms + 29999) / 30000;
+  if (samplesPerUpload > MAX_SAMPLES) samplesPerUpload = MAX_SAMPLES;
+  sensorIntervalMs  = ms / samplesPerUpload;
+  Serial.print(">>> [INTERVAL] Versturen elke ");
+  Serial.print(ms / 1000);
+  Serial.print(" s, meten elke ");
+  Serial.print(sensorIntervalMs / 1000);
+  Serial.println(" s");
+}
 
 // HTTPS-client
 WiFiClientSecure secureClient;
@@ -287,6 +303,27 @@ bool postJson(const String& body) {
         }
       }
     }
+    
+    // Verzendinterval uitlezen (in seconden, ingesteld via admin)
+    const String intervalSleutel = "\"verzend_interval\":";
+    int intervalPositie = response.indexOf(intervalSleutel);
+
+    if (intervalPositie >= 0) {
+      int begin = intervalPositie + intervalSleutel.length();
+      int einde = response.indexOf(',', begin);
+      if (einde < 0) einde = response.indexOf('}', begin);
+      long seconden = response.substring(begin, einde).toInt();
+
+      if (seconden >= 10 && seconden <= 3600) {
+        unsigned long nieuwMs = (unsigned long)seconden * 1000UL;
+        if (nieuwMs != verzendIntervalMs) {
+          stelVerzendIntervalIn(nieuwMs);
+          preferences.begin("brandmelder", false);
+          preferences.putULong("verzendint", nieuwMs);
+          preferences.end();
+        }
+      }
+    }
   } else {
     internetVerbonden = false;
   }
@@ -348,10 +385,17 @@ void setup() {
 
   preferences.begin("brandmelder", true);
   int opgeslagenDrempel = preferences.getInt("co2threshold", DEFAULT_CO2_ALARM_THRESHOLD);
+  unsigned long opgeslagenInterval = preferences.getULong("verzendint", DEFAULT_VERZEND_INTERVAL_MS);
   preferences.end();
 
   if (opgeslagenDrempel >= 1 && opgeslagenDrempel <= 5000) {
     co2AlarmThreshold = opgeslagenDrempel;
+  }
+
+  if (opgeslagenInterval >= 10000 && opgeslagenInterval <= 3600000) {
+    stelVerzendIntervalIn(opgeslagenInterval);
+  } else {
+    stelVerzendIntervalIn(DEFAULT_VERZEND_INTERVAL_MS);
   }
 
   pinMode(LED_BLAUW_PIN, OUTPUT);
