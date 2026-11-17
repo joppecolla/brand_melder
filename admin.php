@@ -58,6 +58,23 @@ foreach ($perMelder as $melder => $punten) {
     ];
 }
 
+// ---------- Datatabel: alle CO₂-metingen van de laatste 14 dagen ----------
+$metingen = $pdo->query("SELECT melder_id, co2,
+                                to_char(created_at::timestamptz AT TIME ZONE 'Europe/Brussels', 'DD-MM-YYYY HH24:MI:SS') AS tijd
+                         FROM sensor_data
+                         WHERE melder_id IS NOT NULL AND co2 >= 300
+                           AND created_at::timestamptz >= now() - interval '14 days'
+                         ORDER BY created_at::timestamptz DESC
+                         LIMIT 20000")->fetchAll(PDO::FETCH_NUM);
+
+// Elk device in de tabel krijgt dezelfde kleur als in de grafiek
+$tabelDevices = [];
+foreach ($devices as $d) { $tabelDevices[$d['id']] = $d['kleur']; }
+foreach ($metingen as [$melder]) {
+    if (!isset($tabelDevices[$melder])) { $tabelDevices[$melder] = $kleuren[count($tabelDevices) % count($kleuren)]; }
+}
+uksort($tabelDevices, fn($a, $b) => strnatcmp((string)$a, (string)$b));
+
 function ico(string $n, string $extra = ''): string {
     $p = [
         'wind' => '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2"/>',
@@ -174,8 +191,8 @@ function ico(string $n, string $extra = ''): string {
                         <span>Device</span>
                         <select id="deviceFilter">
                             <option value="alle">Alle devices</option>
-                            <?php foreach ($devices as $d) { ?>
-                                <option value="<?php echo $d['id']; ?>"><?php echo htmlspecialchars($d['naam']); ?></option>
+                            <?php foreach ($tabelDevices as $id => $kleur) { ?>
+                            <option value="<?php echo htmlspecialchars($id); ?>">Melder <?php echo htmlspecialchars($id); ?></option>
                             <?php } ?>
                         </select>
                     </label>
@@ -183,7 +200,8 @@ function ico(string $n, string $extra = ''): string {
                 <div class="table-scroll">
                     <table class="data-table">
                         <thead>
-                            <tr><th>Tijdstip</th><th>Device</th><th>Temperatuur</th><th>CO₂</th><th>Batterij</th><th>Status</th></tr>                        </thead>
+                            <tr><th>Tijdstip</th><th>Device</th><th>CO₂</th><th>Status</th></tr>
+                        </thead>
                         <tbody id="tabelBody"></tbody>
                     </table>
                 </div>
@@ -435,30 +453,24 @@ document.querySelectorAll('.segmented button').forEach(b => b.addEventListener('
 const filter = document.getElementById('deviceFilter');
 filter.addEventListener('change', vulTabel);
 
+const metingen     = <?php echo json_encode($metingen); ?>;
+const tabelDevices = <?php echo json_encode((object)$tabelDevices); ?>;
+
 function vulTabel() {
-    const body = document.getElementById('tabelBody');
-    body.replaceChildren();
-    const rijen = [];
-    devices.forEach(d => {
-        if (filter.value !== 'alle' && filter.value !== d.id) return;
-        tijden.forEach((t, i) => { if (d.co2[i] !== null) rijen.push({t, i, d}); });
+    const rijen = metingen.filter(([melder]) => filter.value === 'alle' || filter.value === String(melder));
+    let html = '', aantalAlarm = 0;
+    rijen.forEach(([melder, co2, tijd]) => {
+        const boven = Number(co2) >= alarm;
+        if (boven) aantalAlarm++;
+        html += `<tr${boven ? ' class="is-alarm"' : ''}>
+            <td>${esc(tijd)}</td>
+            <td><span class="dev-dot" style="background:${tabelDevices[melder] || '#6c757d'}"></span>Melder ${esc(melder)}</td>
+            <td><strong>${Number(co2)}</strong> ppm</td>
+            <td><span class="badge ${boven ? 'alarm' : 'ok'}">${boven ? 'Boven alarm' : 'OK'}</span></td>
+        </tr>`;
     });
-    rijen.sort((a, b) => b.i - a.i || a.d.id.localeCompare(b.d.id));
-    rijen.forEach(({t, i, d}) => {
-        const co2 = d.co2[i], boven = co2 >= alarm;
-        const tr = document.createElement('tr');
-        if (boven) tr.className = 'is-alarm';
-        tr.innerHTML = `
-            <td>${i === tijden.length - 1 ? '<strong>' + t + '</strong> <small>nu</small>' : t}</td>
-            <td><span class="dev-dot" style="background:${d.kleur}"></span>${esc(d.naam)}</td>
-            <td>${d.temp[i].toFixed(1)} °C</td>
-            <td><strong>${co2}</strong> ppm</td>
-            <td>${d.batterij[i]}%</td>
-            <td><span class="badge ${boven ? 'alarm' : 'ok'}">${boven ? 'Boven alarm' : 'OK'}</span></td>`;
-        body.append(tr);
-    });
-    const aantalAlarm = rijen.filter(r => r.d.co2[r.i] >= alarm).length;
-    document.getElementById('tabelTeller').textContent = `${rijen.length} metingen • ${aantalAlarm} boven alarmwaarde`;
+    document.getElementById('tabelBody').innerHTML = html || '<tr><td colspan="4">Geen metingen in de laatste 14 dagen.</td></tr>';
+    document.getElementById('tabelTeller').textContent = `${rijen.length} metingen (14 dagen) • ${aantalAlarm} boven alarmwaarde`;
 }
 
 // ---------- Namen in de legende en de keuzelijst zetten ----------
