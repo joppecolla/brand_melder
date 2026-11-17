@@ -42,6 +42,35 @@ $mijnMelderLijst = [];   // melder-ID => naam
 foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
     $mijnMelderLijst[$m['melder_id']] = $m['naam'] ?? 'Melder ' . $m['melder_id'];
 }
+
+// Welke melder bedien je? De keuze blijft bewaard zolang je ingelogd bent
+if (isset($_GET['melder']) && isset($mijnMelderLijst[(string)$_GET['melder']])) {
+    $_SESSION['bedien_melder'] = (string)$_GET['melder'];
+}
+$bedienMelder = $_SESSION['bedien_melder'] ?? null;
+if ($bedienMelder === null || !isset($mijnMelderLijst[$bedienMelder])) {
+    $bedienMelder = array_key_first($mijnMelderLijst);
+}
+$bedienMelder = $bedienMelder === null ? null : (string)$bedienMelder;
+
+// Bediening per melder (muziek, liedje, volume, aan/uit)
+$pdo->exec("CREATE TABLE IF NOT EXISTS melder_bediening (
+    melder_id      text PRIMARY KEY,
+    melder_aan     boolean NOT NULL DEFAULT true,
+    muziek         boolean NOT NULL DEFAULT false,
+    volume         integer NOT NULL DEFAULT 25,
+    gekozen_liedje integer NOT NULL DEFAULT 1
+)");
+if ($bedienMelder !== null) {
+    $pdo->prepare("INSERT INTO melder_bediening (melder_id) VALUES (?) ON CONFLICT (melder_id) DO NOTHING")->execute([$bedienMelder]);
+}
+function bedien(PDO $pdo, ?string $melder, string $set, string $voorwaarde = '', array $waarden = []): int {
+    if ($melder === null) { return 0; }
+    $st = $pdo->prepare("UPDATE melder_bediening SET $set WHERE melder_id = ? $voorwaarde");
+    $st->execute(array_merge($waarden, [$melder]));
+    return $st->rowCount();
+}
+
 $stmt = $pdo->prepare("SELECT temperatuur, co2, batterij, (created_at::timestamptz AT TIME ZONE 'Europe/Brussels') AS lokaal FROM sensor_data WHERE $mijnMelders AND co2 >= 300 AND temperatuur <> 0 ORDER BY created_at DESC LIMIT 1");
 $stmt->execute($gebruiker);
 $laatsteData = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -124,41 +153,41 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     switch ($_POST['actie'] ?? '') {
         case 'muziek_aan':
-            if ($pdo->exec("UPDATE melder_status SET muziek = true WHERE id = 1 AND melder_aan = true AND muziek = false")) {
-                meld($pdo, 'Muziekalarm gestart', 'info');
+            if (bedien($pdo, $bedienMelder, 'muziek = true', 'AND melder_aan = true AND muziek = false')) {
+                meld($pdo, 'Muziekalarm gestart (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
             }
             break;
         case 'muziek_uit':
-            if ($pdo->exec("UPDATE melder_status SET muziek = false WHERE id = 1 AND muziek = true")) {
-                meld($pdo, 'Muziekalarm gestopt', 'info');
+            if (bedien($pdo, $bedienMelder, 'muziek = false', 'AND muziek = true')) {
+                meld($pdo, 'Muziekalarm gestopt (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
             }
             break;
         case 'volume':
             $volume = max(0, min(30, (int)($_POST['volume'] ?? 25)));
-            $pdo->prepare("UPDATE melder_status SET volume = ? WHERE id = 1")->execute([$volume]);
+            bedien($pdo, $bedienMelder, 'volume = ?', '', [$volume]);
             break;
 
         case 'speel_liedje':
             $liedje = max(1, min(14, (int)($_POST['liedje'] ?? 1)));
-            $pdo->prepare("UPDATE melder_status SET gekozen_liedje = ?, muziek = true WHERE id = 1")->execute([$liedje]);
+            bedien($pdo, $bedienMelder, 'gekozen_liedje = ?, muziek = true', 'AND melder_aan = true', [$liedje]);
             break;
 
         case 'volgend':
-            $pdo->exec("UPDATE melder_status SET gekozen_liedje = CASE WHEN gekozen_liedje + 1 > 14 THEN 1 ELSE gekozen_liedje + 1 END WHERE id = 1");
+            bedien($pdo, $bedienMelder, 'gekozen_liedje = CASE WHEN gekozen_liedje + 1 > 14 THEN 1 ELSE gekozen_liedje + 1 END');
             break;
 
         case 'vorig':
-            $pdo->exec("UPDATE melder_status SET gekozen_liedje = CASE WHEN gekozen_liedje - 1 < 1 THEN 14 ELSE gekozen_liedje - 1 END WHERE id = 1");
+            bedien($pdo, $bedienMelder, 'gekozen_liedje = CASE WHEN gekozen_liedje - 1 < 1 THEN 14 ELSE gekozen_liedje - 1 END');
             break;
 
         case 'melder_uit':
-            if ($pdo->exec("UPDATE melder_status SET melder_aan = false, muziek = false WHERE id = 1 AND melder_aan = true")) {
-                meld($pdo, 'Uitzetten aangevraagd via dashboard', 'info');
+            if (bedien($pdo, $bedienMelder, 'melder_aan = false, muziek = false', 'AND melder_aan = true')) {
+                meld($pdo, 'Uitzetten aangevraagd via dashboard (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
             }
             break;
         case 'melder_aan':
-            if ($pdo->exec("UPDATE melder_status SET melder_aan = true WHERE id = 1 AND melder_aan = false")) {
-                meld($pdo, 'Aanzetten aangevraagd via dashboard', 'info');
+            if (bedien($pdo, $bedienMelder, 'melder_aan = true', 'AND melder_aan = false')) {
+                meld($pdo, 'Aanzetten aangevraagd via dashboard (' . $mijnMelderLijst[$bedienMelder] . ')', 'info');
             }
             break;
         case 'melder_naam':
@@ -191,6 +220,13 @@ try {
     die("Database niet klaar: voer eerst setup.sql uit in Neon. (" . $e->getMessage() . ")");
 }
 
+// De knoppen tonen de instellingen van de gekozen melder
+if ($bedienMelder !== null) {
+    $st = $pdo->prepare("SELECT melder_aan, muziek, volume, gekozen_liedje FROM melder_bediening WHERE melder_id = ?");
+    $st->execute([$bedienMelder]);
+    $ms = array_merge($ms, $st->fetch(PDO::FETCH_ASSOC) ?: []);
+}
+
 // Actuele waardes ophalen uit de database om in de invoervelden te tonen
 $actueelVolume = (int)($ms['volume'] ?? 25);
 $actueelLiedje = (int)($ms['gekozen_liedje'] ?? 1);
@@ -213,12 +249,19 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS melder_toestand (
     gedempt          boolean NOT NULL DEFAULT false,
     reden            text NOT NULL DEFAULT ''
 )");
-$st = $pdo->prepare("SELECT melder_id, modus, alarm, gedempt, reden, EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden
-                     FROM melder_toestand WHERE $mijnMelders");
+$pdo->exec("ALTER TABLE melder_toestand ADD COLUMN IF NOT EXISTS aan boolean NOT NULL DEFAULT true");
+$st = $pdo->prepare("SELECT melder_id, modus, alarm, gedempt, reden, aan, EXTRACT(EPOCH FROM (now() - laatste_contact)) AS seconden                     FROM melder_toestand WHERE $mijnMelders");
 $st->execute($gebruiker);
 $onlineMelders = [];   
 $alarmMelders  = [];   
+$bedienOnline  = false;
+$bedienLokaal  = false;
 foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
+    if ((string)$m['melder_id'] === $bedienMelder) {
+        $bedienLokaal = ($m['modus'] === 'lokaal');
+        $bedienOnline = !$bedienLokaal && (float)$m['seconden'] <= 90;
+        $apparaatAan  = pgBool($m['aan']);
+    }
     if ($m['modus'] === 'lokaal' || (float)$m['seconden'] > 90) { continue; }
     $naam = $mijnMelderLijst[$m['melder_id']] ?? 'Melder ' . $m['melder_id'];
     $onlineMelders[] = $naam;
@@ -230,8 +273,7 @@ foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
 $contactVers = count($onlineMelders) > 0;   
 $lokaal      = false;                       
 $alarmActief = count($alarmMelders) > 0;
-$wijzigingBezig = $contactVers && ($staat['melder'] !== $apparaatAan);
-
+$wijzigingBezig = $bedienOnline && ($staat['melder'] !== $apparaatAan);
 if ($contactVers) { $verbinding = 'Online';  $onlineKleur = 'online';  $verbindingDetail = implode(', ', $onlineMelders); }
 else              { $verbinding = 'Offline'; $onlineKleur = 'offline'; $verbindingDetail = $mijnMelderLijst ? 'Geen enkel device is online' : 'Nog geen devices gekoppeld'; }
 
@@ -245,8 +287,8 @@ elseif (!$apparaatAan)    { $niveau = 'uit';   $systeemStatus = 'Uitgeschakeld';
 else                      { $niveau = 'ok';    $systeemStatus = 'Actief & Veilig';   $titel = 'Online';               $sub = 'Online: ' . implode(', ', $onlineMelders) . '. Geen alarm.'; }
 if ($wijzigingBezig && $niveau !== 'alarm') { $sub .= ' Wijziging wordt doorgegeven aan de melder…'; }
 
-if ($lokaal)               { $melderTekst = 'Lokale modus, niet bereikbaar'; }
-elseif (!$contactVers)     { $melderTekst = 'Geen verbinding'; }
+if ($bedienLokaal)         { $melderTekst = 'Lokale modus, niet bereikbaar'; }
+elseif (!$bedienOnline)    { $melderTekst = 'Geen verbinding'; }
 elseif ($wijzigingBezig)   { $melderTekst = 'Wijziging wordt doorgegeven…'; }
 else                       { $melderTekst = $apparaatAan ? 'Actief en bewaakt' : 'Uitgeschakeld'; }
 $bedieningInfo = ($lokaal || !$contactVers) ? 'De melder is nu niet bereikbaar. Je keuze wordt toegepast zodra hij weer online is.' : '';
@@ -453,6 +495,16 @@ function lijngrafiek(array $lijnen, string $eenheid, string $id, array $labels):
             <div class="dash-bottom">
                 <section class="card" id="bediening-card">
                     <h3 class="card-title">Bediening</h3>
+                    <?php if ($mijnMelderLijst) { ?>
+                    <form method="get" class="select-wrap bedien-keuze">
+                        <span>Melder</span>
+                        <select name="melder" onchange="this.form.submit()">
+                            <?php foreach ($mijnMelderLijst as $id => $naam) { ?>
+                            <option value="<?php echo htmlspecialchars($id); ?>" <?php echo (string)$id === $bedienMelder ? 'selected' : ''; ?>><?php echo htmlspecialchars($naam); ?></option>
+                            <?php } ?>
+                        </select>
+                    </form>
+                    <?php } ?>
 
                     <div class="control">
                         <span class="tile"><?php echo ico('music'); ?></span>

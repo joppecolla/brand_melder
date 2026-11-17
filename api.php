@@ -26,6 +26,22 @@ function meld(PDO $pdo, string $tekst, string $niveau): void {
     $pdo->prepare("INSERT INTO meldingen (tekst, niveau) VALUES (?, ?)")->execute([$tekst, $niveau]);
 }
 
+// Bediening per melder (muziek, liedje, volume, aan/uit): elke melder krijgt zijn eigen rij
+function bedieningVan(PDO $pdo, ?string $melderId, array $old): array {
+    if ($melderId === null) { return $old; }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS melder_bediening (
+        melder_id      text PRIMARY KEY,
+        melder_aan     boolean NOT NULL DEFAULT true,
+        muziek         boolean NOT NULL DEFAULT false,
+        volume         integer NOT NULL DEFAULT 25,
+        gekozen_liedje integer NOT NULL DEFAULT 1
+    )");
+    $pdo->prepare("INSERT INTO melder_bediening (melder_id) VALUES (?) ON CONFLICT (melder_id) DO NOTHING")->execute([$melderId]);
+    $st = $pdo->prepare("SELECT melder_aan, muziek, volume, gekozen_liedje FROM melder_bediening WHERE melder_id = ?");
+    $st->execute([$melderId]);
+    return array_merge($old, $st->fetch(PDO::FETCH_ASSOC));
+}
+
 function stuurAlarmMail(string $onderwerp, string $bericht): void {
     $apiKey = getenv('RESEND_API_KEY');
     $ontvanger = getenv('ALARM_EMAIL');
@@ -306,14 +322,17 @@ try {
             gedempt          boolean NOT NULL DEFAULT false,
             reden            text NOT NULL DEFAULT ''
         )");
-        $pdo->prepare("INSERT INTO melder_toestand (melder_id, laatste_contact, modus, alarm, gedempt, reden)
-                       VALUES (?, now(), ?, CAST(? AS boolean), CAST(? AS boolean), ?)
+        $pdo->exec("ALTER TABLE melder_toestand ADD COLUMN IF NOT EXISTS aan boolean NOT NULL DEFAULT true");
+        $pdo->prepare("INSERT INTO melder_toestand (melder_id, laatste_contact, modus, alarm, gedempt, reden, aan)
+                       VALUES (?, now(), ?, CAST(? AS boolean), CAST(? AS boolean), ?, CAST(? AS boolean))
                        ON CONFLICT (melder_id) DO UPDATE SET laatste_contact = now(), modus = EXCLUDED.modus,
-                           alarm = EXCLUDED.alarm, gedempt = EXCLUDED.gedempt, reden = EXCLUDED.reden")
-            ->execute([$melderId, $status, $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden]);
+                           alarm = EXCLUDED.alarm, gedempt = EXCLUDED.gedempt, reden = EXCLUDED.reden, aan = EXCLUDED.aan")
+            ->execute([$melderId, $status, $alarm ? 'true' : 'false', $gedempt ? 'true' : 'false', $reden, $apparaatAan ? 'true' : 'false']);
     }
 
     // Antwoord terugsturen naar de ESP32 (inclusief volume en gekozen liedje)
+    $stap = 'bediening lezen';
+    $old = bedieningVan($pdo, $melderId, $old);
     echo json_encode([
         'ok' => true,
         'melder' => pgBool($old['melder_aan']),
